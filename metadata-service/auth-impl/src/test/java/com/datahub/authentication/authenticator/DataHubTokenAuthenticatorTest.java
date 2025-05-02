@@ -174,7 +174,12 @@ public class DataHubTokenAuthenticatorTest {
     final Actor datahub = new Actor(ActorType.USER, "datahub");
     final String validToken =
         authenticator._statefulTokenService.generateAccessToken(
-            TokenType.PERSONAL, datahub, "some token", "A token description", datahub.toUrnStr());
+            testOperationContext(),
+            TokenType.PERSONAL,
+            datahub,
+            "some token",
+            "A token description",
+            datahub.toUrnStr());
 
     final String authorizationHeaderValue = String.format("Bearer %s", validToken);
     final AuthenticationRequest context =

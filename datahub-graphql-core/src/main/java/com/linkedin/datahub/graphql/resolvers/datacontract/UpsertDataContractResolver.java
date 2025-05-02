@@ -18,6 +18,7 @@ import com.linkedin.datacontract.FreshnessContractArray;
 import com.linkedin.datacontract.SchemaContract;
 import com.linkedin.datacontract.SchemaContractArray;
 import com.linkedin.datahub.graphql.QueryContext;
+import com.linkedin.datahub.graphql.concurrency.GraphQLConcurrencyUtils;
 import com.linkedin.datahub.graphql.exception.AuthorizationException;
 import com.linkedin.datahub.graphql.exception.DataHubGraphQLErrorCode;
 import com.linkedin.datahub.graphql.exception.DataHubGraphQLException;
@@ -67,7 +68,7 @@ public class UpsertDataContractResolver implements DataFetcher<CompletableFuture
     final UpsertDataContractInput input =
         bindArgument(environment.getArgument("input"), UpsertDataContractInput.class);
     final Urn entityUrn = UrnUtils.getUrn(input.getEntityUrn());
-    return CompletableFuture.supplyAsync(
+    return GraphQLConcurrencyUtils.supplyAsync(
         () -> {
           if (DataContractUtils.canEditDataContract(context, entityUrn)) {
 
@@ -123,7 +124,9 @@ public class UpsertDataContractResolver implements DataFetcher<CompletableFuture
           }
           throw new AuthorizationException(
               "Unauthorized to perform this action. Please contact your DataHub administrator.");
-        });
+        },
+        this.getClass().getSimpleName(),
+        "get");
   }
 
   private void validateInput(

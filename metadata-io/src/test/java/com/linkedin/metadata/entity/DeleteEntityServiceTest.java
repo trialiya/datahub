@@ -119,7 +119,7 @@ public class DeleteEntityServiceTest {
 
     RollbackResult result =
         new RollbackResult(
-            container,
+            dataset,
             Constants.DATASET_ENTITY_NAME,
             Constants.CONTAINER_ASPECT_NAME,
             containerAspect,
