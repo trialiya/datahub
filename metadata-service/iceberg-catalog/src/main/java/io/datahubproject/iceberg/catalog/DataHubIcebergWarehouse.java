@@ -48,8 +48,7 @@ public class DataHubIcebergWarehouse {
 
   @Getter private final String platformInstance;
 
-  @VisibleForTesting
-  DataHubIcebergWarehouse(
+  public DataHubIcebergWarehouse(
       String platformInstance,
       IcebergWarehouseInfo icebergWarehouse,
       EntityService entityService,
