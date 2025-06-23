@@ -846,7 +846,7 @@ public class EntityServiceImpl implements EntityService<ChangeItemImpl> {
         AspectsBatchImpl.builder()
             .retrieverContext(opContext.getRetrieverContext())
             .items(items)
-            .build(),
+            .build(opContext),
         true,
         true);
   }
@@ -917,7 +917,7 @@ public class EntityServiceImpl implements EntityService<ChangeItemImpl> {
                           AspectsBatchImpl.builder()
                               .items(sideEffects)
                               .retrieverContext(opContext.getRetrieverContext())
-                              .build())
+                              .build(opContext))
                       .count();
               log.info("Generated {} MCP SideEffects for async processing", count);
             });
@@ -1296,7 +1296,7 @@ public class EntityServiceImpl implements EntityService<ChangeItemImpl> {
                     .auditStamp(auditStamp)
                     .build(opContext.getAspectRetriever()),
                 opContext.getRetrieverContext())
-            .build();
+            .build(opContext);
     List<UpdateAspectResult> ingested = ingestAspects(opContext, aspectsBatch, true, false);
 
     return ingested.stream().findFirst().map(UpdateAspectResult::getNewValue).orElse(null);
@@ -1321,7 +1321,7 @@ public class EntityServiceImpl implements EntityService<ChangeItemImpl> {
             opContext,
             AspectsBatchImpl.builder()
                 .mcps(List.of(proposal), auditStamp, opContext.getRetrieverContext())
-                .build(),
+                .build(opContext),
             async)
         .stream()
         .findFirst()
@@ -1411,7 +1411,7 @@ public class EntityServiceImpl implements EntityService<ChangeItemImpl> {
                 AspectsBatchImpl.builder()
                     .retrieverContext(aspectsBatch.getRetrieverContext())
                     .items(timeseriesKeyAspects)
-                    .build());
+                    .build(opContext));
           }
 
           // Emit timeseries MCLs
@@ -1537,7 +1537,7 @@ public class EntityServiceImpl implements EntityService<ChangeItemImpl> {
                       aspectsBatch.getItems().stream()
                           .filter(item -> !item.getAspectSpec().isTimeseries())
                           .collect(Collectors.toList()))
-                  .build();
+                  .build(opContext);
 
           List<? extends MCPItem> unsupported =
               nonTimeseries.getMCPItems().stream()
@@ -1853,7 +1853,7 @@ public class EntityServiceImpl implements EntityService<ChangeItemImpl> {
               AspectsBatchImpl.builder()
                   .retrieverContext(opContext.getRetrieverContext())
                   .items(keyAspect)
-                  .build());
+                  .build(opContext));
       defaultAspectsCreated += defaultAspectsResult.count();
 
       result.sendMessageMs += System.currentTimeMillis() - startTime;
@@ -2262,7 +2262,7 @@ public class EntityServiceImpl implements EntityService<ChangeItemImpl> {
                                 .systemMetadata(systemMetadata)
                                 .build(opContext.getAspectRetriever()))
                     .collect(Collectors.toList()))
-            .build();
+            .build(opContext);
 
     ingestAspects(opContext, aspectsBatch, true, true);
   }
@@ -2540,7 +2540,8 @@ public class EntityServiceImpl implements EntityService<ChangeItemImpl> {
 
     // Delete validation hooks
     ValidationExceptionCollection exceptions =
-        AspectsBatch.validateProposed(List.of(deleteItem), opContext.getRetrieverContext());
+        AspectsBatch.validateProposed(
+            List.of(deleteItem), opContext.getRetrieverContext(), opContext);
     if (!exceptions.isEmpty()) {
       throw new ValidationException(collectMetrics(exceptions).toString());
     }

@@ -9317,6 +9317,11 @@ type ResourceFilter {
   Whether of not to apply the filter to all resources of the type
   """
   filter: PolicyMatchFilter
+
+  """
+  Constraints on what subresources can be acted upon
+  """
+  privilegeConstraints: PolicyMatchFilter
 }
 
 """
@@ -9438,6 +9443,10 @@ enum PolicyMatchCondition {
   Whether the field value starts with the value
   """
   STARTS_WITH
+  """
+  Whether the field does not match the value
+  """
+  NOT_EQUALS
 }
 
 """
@@ -9467,6 +9476,11 @@ input ResourceFilterInput {
   Whether of not to apply the filter to all resources of the type
   """
   filter: PolicyMatchFilterInput
+
+  """
+  Constraints on what subresources can be acted upon
+  """
+  privilegeConstraints: PolicyMatchFilterInput
 }
 
 """

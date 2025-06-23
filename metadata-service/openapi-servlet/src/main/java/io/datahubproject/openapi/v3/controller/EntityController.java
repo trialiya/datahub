@@ -690,7 +690,7 @@ public class EntityController
     return AspectsBatchImpl.builder()
         .items(items)
         .retrieverContext(opContext.getRetrieverContext())
-        .build();
+        .build(opContext);
   }
 
   @Override

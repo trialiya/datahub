@@ -41,7 +41,7 @@ public class IngestTestUtils {
     Mockito.when(mockContext.getActorUrn()).thenReturn("urn:li:corpuser:test");
 
     when(mockContext.getOperationContext()).thenReturn(mock(OperationContext.class));
-    when(mockContext.getOperationContext().authorize(any(), nullable(EntitySpec.class)))
+    when(mockContext.getOperationContext().authorize(any(), nullable(EntitySpec.class), any()))
         .thenReturn(new AuthorizationResult(null, AuthorizationResult.Type.ALLOW, ""));
     return mockContext;
   }
@@ -51,7 +51,7 @@ public class IngestTestUtils {
     Mockito.when(mockContext.getActorUrn()).thenReturn("urn:li:corpuser:test");
 
     when(mockContext.getOperationContext()).thenReturn(mock(OperationContext.class));
-    when(mockContext.getOperationContext().authorize(any(), nullable(EntitySpec.class)))
+    when(mockContext.getOperationContext().authorize(any(), nullable(EntitySpec.class), any()))
         .thenReturn(new AuthorizationResult(null, AuthorizationResult.Type.DENY, ""));
     return mockContext;
   }
