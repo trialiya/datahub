@@ -30,6 +30,7 @@ public class Constants {
   public static final String CONNECTIONS_SCHEMA_FILE = "connection.graphql";
   public static final String VERSION_SCHEMA_FILE = "versioning.graphql";
   public static final String QUERY_SCHEMA_FILE = "query.graphql";
+  public static final String PATCH_SCHEMA_FILE = "patch.graphql";
   public static final String BROWSE_PATH_DELIMITER = "/";
   public static final String BROWSE_PATH_V2_DELIMITER = "␟";
   public static final String VERSION_STAMP_FIELD_NAME = "versionStamp";
