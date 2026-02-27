@@ -1,3 +1,4 @@
+import { colors } from '@components';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import styled from 'styled-components/macro';
@@ -8,26 +9,34 @@ import { useGlossaryActiveTabPath } from '../../entityV2/shared/containers/profi
 import { useEntityRegistry } from '../../useEntityRegistry';
 
 const TermWrapper = styled.div<{ $isSelected: boolean; $depth: number }>`
-    padding: 13px 0;
-    padding-left: calc(${(props) => (props.$depth ? props.$depth * 18 + 12 : 18)}px);
-    background-color: ${(props) => props.$isSelected && REDESIGN_COLORS.HIGHLIGHT_PURPLE};
+    padding-left: calc(${(props) => (props.$depth ? props.$depth * 24 + 12 : 18)}px);
+    background-color: ${(props) => props.$isSelected && props.theme.colors.bgActive}};
     display: flex;
+
+    &:hover {
+        background-color: ${colors.gray[100]};
+        a,
+        span {
+            color: ${(props) => props.theme.colors.textBrand};
+        }
+    }
 `;
 
 const nameStyles = `
+    padding: 16px 0;
     display: inline-block;
     height: 100%;
     width: 100%;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 400;
     line-height: normal;
-    color: ${REDESIGN_COLORS.TEXT_HEADING};
+    color: ${(props) => props.theme.colors.text};
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
 
     &:hover {
-        color: ${REDESIGN_COLORS.HOVER_PURPLE_2};
+        color: ${(props) => props.theme.colors.textActive};
         opacity: 1;
     }
 `;
@@ -43,8 +52,8 @@ export const TermLink = styled(Link)<TermLinkProps>`
     ${nameStyles}
 
     ${(props) => props.$isChildNode && `opacity: 1;`}
-    ${(props) => props.$areChildrenVisible && `color: ${REDESIGN_COLORS.HOVER_PURPLE_2}; font-weight: 500; opacity: 1;`}
-    ${(props) => props.$isSelected && `color: ${REDESIGN_COLORS.HOVER_PURPLE}; font-weight: 700; opacity: 1;`}
+    ${(props) => props.$areChildrenVisible && `color: ${props.theme.colors.textActive}; font-weight: 500; opacity: 1;`}
+    ${(props) => props.$isSelected && `color: ${props.theme.colors.textActive}}; font-weight: 700; opacity: 1;`}
 `;
 
 export const NameWrapper = styled.span<{ showSelectStyles?: boolean }>`
@@ -54,7 +63,6 @@ export const NameWrapper = styled.span<{ showSelectStyles?: boolean }>`
         ${(props) =>
             props.showSelectStyles &&
             `
-        background-color: ${ANTD_GRAY[3]};
         cursor: pointer;
         `}
     }

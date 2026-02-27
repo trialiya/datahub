@@ -40,6 +40,9 @@ vi.mock('@app/useAppConfig', () => ({
                 ],
                 platformPrivileges: [{ type: 'manage-policies', displayName: 'Manage Policies' }],
             },
+            featureFlags: {
+                glossaryBasedPoliciesEnabled: true,
+            },
         },
     }),
 }));

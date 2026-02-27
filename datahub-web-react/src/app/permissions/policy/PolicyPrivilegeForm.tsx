@@ -11,6 +11,7 @@ import {
     useGetSearchResultsLazyQuery,
 } from '../../../graphql/search.generated';
 import { ResourceFilter, PolicyType, EntityType, Domain, Entity, Container } from '../../../types.generated';
+import GlossarySelector from '@app/permissions/policy/GlossarySelector';
 import {
     convertLegacyResourceFilter,
     createCriterionValue,
@@ -30,6 +31,7 @@ import { TagTermLabel } from '../../shared/tags/TagTermLabel';
 import { ENTER_KEY_CODE } from '../../shared/constants';
 import { useGetRecommendations } from '../../shared/recommendation';
 import { RESOURCE_TYPE, RESOURCE_URN, TYPE, URN } from './constants';
+import { useIsGlossaryBasedPoliciesEnabled } from '@app/shared/hooks/useIsGlossaryBasedPoliciesEnabled';
 
 type Props = {
     policyType: PolicyType;
@@ -68,7 +70,7 @@ const StyleTag = styled(CustomTag)`
     align-items: center;
     white-space: nowrap;
     opacity: 1;
-    color: #434343;
+    color: ${(props) => props.theme.colors.borderDisabled};
     line-height: 16px;
 `;
 
@@ -89,6 +91,7 @@ export default function PolicyPrivilegeForm({
     focusPolicyUrn,
 }: Props) {
     const entityRegistry = useEntityRegistry();
+    const isGlossaryBasedPoliciesEnabled = useIsGlossaryBasedPoliciesEnabled();
     const [domainInputValue, setDomainInputValue] = useState('');
     const [containerInputValue, setContainerInputValue] = useState('');
     const [isFocusedOnInput, setIsFocusedOnInput] = useState(false);
@@ -704,6 +707,11 @@ export default function PolicyPrivilegeForm({
                             </Select.Option>
                         ))}
                     </Select>
+                </Form.Item>
+            )}
+            {showResourceFilterInput && isGlossaryBasedPoliciesEnabled && (
+                <Form.Item label={<Typography.Text strong>Select Glossary Terms & Term Groups</Typography.Text>}>
+                    <GlossarySelector resources={resources} setResources={setResources} />
                 </Form.Item>
             )}
             <Form.Item label={<Typography.Text strong>Privileges</Typography.Text>}>

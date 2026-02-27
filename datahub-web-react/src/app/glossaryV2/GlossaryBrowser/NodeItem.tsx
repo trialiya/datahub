@@ -41,9 +41,15 @@ const NodeWrapper = styled.div<{ $isSelected: boolean; $depth: number }>`
     align-items: center;
     display: flex;
     font-size: 16px;
-    padding: 13px 0;
-    background-color: ${(props) => props.$isSelected && REDESIGN_COLORS.HIGHLIGHT_PURPLE};
+    background-color: ${(props) => props.$isSelected && props.theme.colors.bgActive};
     padding-left: calc(${(props) => (props.$depth ? props.$depth * 18 + 12 : 12)}px);
+
+    &:hover {
+        background-color: ${colors.gray[100]};
+        ${NameWrapper} {
+            color: ${(props) => props.theme.colors.textBrand};
+        }
+    }
 `;
 
 const StyledRightOutlined = styled(KeyboardArrowRightRounded)<{ isSelected: boolean }>`
@@ -97,7 +103,7 @@ const ChildrenCount = styled.div`
 const StyledDivider = styled.div<{ depth: number }>`
     width: calc(100% + 26px + ${(props) => props.depth * 18}px);
     margin-left: calc(-13px - ${(props) => props.depth * 18}px);
-    border-bottom: 1px solid #eae8fb;
+    border-bottom: 1px solid ${(props) => props.theme.colors.bgActive};
 `;
 
 interface Relationship {
