@@ -1,5 +1,7 @@
 package io.datahubproject.metadata.context;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNotEquals;
 
@@ -8,6 +10,7 @@ import com.datahub.authentication.ActorType;
 import com.datahub.authentication.Authentication;
 import com.linkedin.common.UrnArray;
 import com.linkedin.common.urn.UrnUtils;
+import com.linkedin.data.template.RecordTemplate;
 import com.linkedin.data.template.StringArray;
 import com.linkedin.metadata.authorization.PoliciesConfig;
 import com.linkedin.policy.DataHubActorFilter;
@@ -17,7 +20,9 @@ import com.linkedin.policy.PolicyMatchCondition;
 import com.linkedin.policy.PolicyMatchCriterion;
 import com.linkedin.policy.PolicyMatchCriterionArray;
 import com.linkedin.policy.PolicyMatchFilter;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.testng.annotations.Test;
 
@@ -126,5 +131,32 @@ public class ActorContextTest {
         ActorContext.asSessionRestricted(userAuth, Set.of(POLICY_D), Set.of(), true)
             .getCacheKeyComponent(),
         "Expected differences with ownership type policy");
+  }
+
+  @Test
+  public void indexPoliciesByPrivilegeGroupsPoliciesByPrivilege() {
+    Map<String, List<RecordTemplate>> indexed =
+        ActorContext.indexPoliciesByPrivilege(Set.of(POLICY_ABC, POLICY_D));
+
+    assertEquals(indexed.get("a"), List.of(POLICY_ABC));
+    assertEquals(indexed.get("b"), List.of(POLICY_ABC));
+    assertEquals(indexed.get("c"), List.of(POLICY_ABC));
+    assertEquals(indexed.get("d"), List.of(POLICY_D));
+    assertEquals(ActorContext.indexPoliciesByPrivilege(Set.of()).size(), 0);
+    assertEquals(ActorContext.indexPoliciesByPrivilege(null).size(), 0);
+  }
+
+  @Test
+  public void indexPoliciesByPrivilegeSkipsPoliciesWithNullPrivileges() {
+    DataHubPolicyInfo policyWithoutPrivileges = mock(DataHubPolicyInfo.class);
+    when(policyWithoutPrivileges.getPrivileges()).thenReturn(null);
+    Set<DataHubPolicyInfo> policies = new HashSet<>();
+    policies.add(POLICY_ABC);
+    policies.add(policyWithoutPrivileges);
+
+    Map<String, List<RecordTemplate>> indexed = ActorContext.indexPoliciesByPrivilege(policies);
+
+    assertEquals(indexed.get("a"), List.of(POLICY_ABC));
+    assertEquals(indexed.size(), 3);
   }
 }
