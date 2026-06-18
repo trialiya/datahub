@@ -1377,8 +1377,7 @@ public class GmsGraphQLEngine {
               .dataFetcher(
                   "createDynamicFormAssignment",
                   new CreateDynamicFormAssignmentResolver(this.formService))
-              .dataFetcher(
-                  "verifyForm", new VerifyFormResolver(this.formService, this.groupService))
+              .dataFetcher("verifyForm", new VerifyFormResolver(this.formService))
               .dataFetcher("batchRemoveForm", new BatchRemoveFormResolver(this.formService))
               .dataFetcher(
                   "upsertStructuredProperties",
@@ -2886,7 +2885,7 @@ public class GmsGraphQLEngine {
                                   .collect(Collectors.toList())
                               : null;
                         }))
-                .dataFetcher("isAssignedToMe", new IsFormAssignedToMeResolver(groupService)));
+                .dataFetcher("isAssignedToMe", new IsFormAssignedToMeResolver()));
   }
 
   private void configureDataProductResolvers(final RuntimeWiring.Builder builder) {

@@ -1,6 +1,7 @@
 package com.linkedin.gms.factory.context;
 
 import com.datahub.authentication.Authentication;
+import com.datahub.authentication.group.GroupService;
 import com.linkedin.entity.client.SystemEntityClient;
 import com.linkedin.gms.factory.config.ConfigurationProvider;
 import com.linkedin.gms.factory.search.BaseElasticSearchComponentsFactory;
@@ -20,6 +21,8 @@ import io.datahubproject.metadata.context.TraceContext;
 import io.datahubproject.metadata.context.ValidationContext;
 import io.datahubproject.metadata.services.RestrictedService;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -48,7 +51,9 @@ public class SystemOperationContextFactory {
           BaseElasticSearchComponentsFactory.BaseElasticSearchComponents components,
       @Nonnull final ConfigurationProvider configurationProvider,
       @Qualifier("systemEntityClient") @Nonnull final SystemEntityClient systemEntityClient,
-      @Nonnull final TraceContext traceContext) {
+      @Nonnull final TraceContext traceContext,
+      @Autowired(required = false) @Qualifier("groupService") @Nullable
+          final GroupService groupService) {
 
     EntityServiceAspectRetriever entityServiceAspectRetriever =
         EntityServiceAspectRetriever.builder()
@@ -70,7 +75,10 @@ public class SystemOperationContextFactory {
             operationContextConfig,
             systemAuthentication,
             entityServiceAspectRetriever.getEntityRegistry(),
-            ServicesRegistryContext.builder().restrictedService(restrictedService).build(),
+            ServicesRegistryContext.builder()
+                .restrictedService(restrictedService)
+                .actorGroupMembershipService(groupService)
+                .build(),
             components.getIndexConvention(),
             RetrieverContext.builder()
                 .aspectRetriever(entityServiceAspectRetriever)
@@ -113,7 +121,9 @@ public class SystemOperationContextFactory {
       @Qualifier("baseElasticSearchComponents")
           BaseElasticSearchComponentsFactory.BaseElasticSearchComponents components,
       @Nonnull final ConfigurationProvider configurationProvider,
-      @Nonnull final TraceContext traceContext) {
+      @Nonnull final TraceContext traceContext,
+      @Autowired(required = false) @Qualifier("groupService") @Nullable
+          final GroupService groupService) {
 
     EntityClientAspectRetriever entityClientAspectRetriever =
         EntityClientAspectRetriever.builder().entityClient(systemEntityClient).build();
@@ -129,7 +139,10 @@ public class SystemOperationContextFactory {
             operationContextConfig,
             systemAuthentication,
             entityRegistry,
-            ServicesRegistryContext.builder().restrictedService(restrictedService).build(),
+            ServicesRegistryContext.builder()
+                .restrictedService(restrictedService)
+                .actorGroupMembershipService(groupService)
+                .build(),
             components.getIndexConvention(),
             RetrieverContext.builder()
                 .cachingAspectRetriever(entityClientAspectRetriever)

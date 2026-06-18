@@ -26,7 +26,6 @@ import com.datahub.authentication.Actor;
 import com.datahub.authentication.ActorType;
 import com.datahub.authentication.Authentication;
 import com.datahub.authentication.AuthenticationContext;
-import com.datahub.authorization.AuthorizationResult;
 import com.datahub.authorization.AuthorizerChain;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -63,6 +62,7 @@ import io.datahubproject.metadata.context.ValidationContext;
 import io.datahubproject.openapi.config.SpringWebConfig;
 import io.datahubproject.openapi.config.TracingInterceptor;
 import io.datahubproject.openapi.exception.InvalidUrnException;
+import io.datahubproject.openapi.test.AuthorizerChainTestSupport;
 import io.datahubproject.test.metadata.context.TestOperationContexts;
 import jakarta.servlet.ServletException;
 import java.util.Collections;
@@ -103,6 +103,7 @@ public class EntityControllerTest extends AbstractTestNGSpringContextTests {
   @Autowired private SearchService mockSearchService;
   @Autowired private EntityService<?> mockEntityService;
   @Autowired private TimeseriesAspectService mockTimeseriesAspectService;
+  @Autowired private AuthorizerChain authorizerChain;
   @Autowired private EntityRegistry entityRegistry;
   @Autowired private OperationContext opContext;
   @MockBean private ConfigurationProvider configurationProvider;
@@ -211,6 +212,9 @@ public class EntityControllerTest extends AbstractTestNGSpringContextTests {
 
   @Test
   public void testDeleteEntity() throws Exception {
+    reset(authorizerChain);
+    AuthorizerChainTestSupport.stubAllowViaOperationContextAuthorizer(authorizerChain);
+
     Urn TEST_URN = UrnUtils.getUrn("urn:li:dataset:(urn:li:dataPlatform:testPlatform,4,PROD)");
 
     // test delete entity
@@ -434,8 +438,7 @@ public class EntityControllerTest extends AbstractTestNGSpringContextTests {
 
       Authentication authentication = mock(Authentication.class);
       when(authentication.getActor()).thenReturn(new Actor(ActorType.USER, "datahub"));
-      when(authorizerChain.authorize(any()))
-          .thenReturn(new AuthorizationResult(null, AuthorizationResult.Type.ALLOW, ""));
+      AuthorizerChainTestSupport.stubAllowViaOneArgOnly(authorizerChain);
       AuthenticationContext.setAuthentication(authentication);
 
       return authorizerChain;
