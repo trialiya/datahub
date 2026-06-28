@@ -1,5 +1,6 @@
 package com.datahub.authorization;
 
+import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
@@ -20,7 +21,7 @@ public class FieldResolver {
   @Getter(lazy = true)
   private final CompletableFuture<FieldValue> fieldValuesFuture = resolveField.get();
 
-  private static final FieldValue EMPTY = new FieldValue(Set.of());
+  private static final FieldValue EMPTY = new FieldValue(Collections.emptySet());
 
   /** Helper function that returns FieldResolver for precomputed values */
   public static FieldResolver getResolverFromValues(Set<String> values) {
