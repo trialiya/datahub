@@ -58,6 +58,10 @@ tasks.register('jacocoMergedReport', JacocoReport) {
 gradle.projectsEvaluated {
   def execTreeOf = { p -> p.fileTree(p.layout.buildDirectory.dir('jacoco')).include('*.exec') }
 
+  // Generated code dominates report size and has no meaningful coverage. Keep in sync with
+  // java-coverage.gradle.
+  def jacocoCoverageExcludes = ['**/generated/**']
+
   // Only modules whose tests actually ran in THIS invocation (their .exec exists). See the
   // header comment for why compiled-but-untested modules must be excluded.
   def testedProjects = subprojects.findAll { p ->
@@ -67,7 +71,9 @@ gradle.projectsEvaluated {
   }
 
   tasks.named('jacocoMergedReport').configure {
-    classDirectories.setFrom(rootProject.files(testedProjects.collect { it.sourceSets.main.output }))
+    classDirectories.setFrom(rootProject.files(testedProjects.collect { p ->
+      p.sourceSets.main.output.collect { dir -> p.fileTree(dir: dir, excludes: jacocoCoverageExcludes) }
+    }))
     sourceDirectories.setFrom(rootProject.files(testedProjects.collect { it.sourceSets.main.allSource.srcDirs }))
     executionData.setFrom(rootProject.files(testedProjects.collect { execTreeOf(it) }))
   }
