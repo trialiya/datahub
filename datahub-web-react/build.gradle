@@ -60,6 +60,27 @@ task yarnInstall(type: YarnTask) {
   outputs.dir('node_modules')
 }
 
+// Installs the isolated graphiql-vendor/ dependency set (React 18 + GraphiQL UMD/CSS bundles for the
+// standalone /graphiql page) using its own package.json + yarn.lock, kept separate from the main app's
+// yarn.lock since the app depends on react@17. Mirrors the nested-project pattern already used for
+// smoke-test/tests/cypress in smoke-test/build.gradle.
+task graphiqlVendorInstall(type: YarnTask) {
+  def vendorDir = "${project.projectDir}/graphiql-vendor"
+  def argsList = ['install', '--network-timeout', '300000', '--cwd', vendorDir]
+  if (System.getenv("CI") == "true") {
+    argsList += ['--frozen-lockfile']
+  }
+  args.set(argsList)
+
+  outputs.cacheIf { false }
+
+  inputs.files(
+    file("${vendorDir}/yarn.lock"),
+    file("${vendorDir}/package.json"),
+  )
+  outputs.dir("${vendorDir}/node_modules")
+}
+
 task yarnGenerateCacheable(type: YarnTask, dependsOn: yarnInstall) {
   args = ['run', 'generate']
 
@@ -119,12 +140,12 @@ task generateLazyIconStubs(type: NodeTask, dependsOn: yarnInstall) {
   mustRunAfter yarnGenerateCacheable
 }
 
-task yarnServe(type: YarnTask, dependsOn: [yarnInstall, yarnGenerate, generateLazyIconStubs]) {
+task yarnServe(type: YarnTask, dependsOn: [yarnInstall, yarnGenerate, generateLazyIconStubs, graphiqlVendorInstall]) {
   environment.put('REACT_APP_PROXY_TARGET', 'http://localhost:9001')
   args = ['run', 'start']
 }
 
-task yarnPreview(type: YarnTask, dependsOn: [yarnInstall, yarnGenerate, generateLazyIconStubs]) {
+task yarnPreview(type: YarnTask, dependsOn: [yarnInstall, yarnGenerate, generateLazyIconStubs, graphiqlVendorInstall]) {
   environment.put('REACT_APP_PROXY_TARGET', project.findProperty('proxy') ?: 'http://localhost:9001')
   args = ['run', 'preview']
 }
@@ -238,7 +259,7 @@ task yarnLintFix(type: YarnTask, dependsOn: [yarnInstall, yarnGenerate, generate
   }
 }
 
-task yarnBuild(type: YarnTask, dependsOn: [yarnInstall, yarnGenerate, generateLazyIconStubs]) {
+task yarnBuild(type: YarnTask, dependsOn: [yarnInstall, yarnGenerate, generateLazyIconStubs, graphiqlVendorInstall]) {
   // Pass DataHub version via environment variable to vite build
   environment.put('DATAHUB_APP_VERSION', project.version)
 
@@ -251,6 +272,7 @@ task yarnBuild(type: YarnTask, dependsOn: [yarnInstall, yarnGenerate, generateLa
     project.fileTree(dir: "public"),
 
     yarnInstall.inputs.files,
+    graphiqlVendorInstall.inputs.files,
 
     file('.env'),
     file('vite.config.ts'),

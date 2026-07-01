@@ -164,18 +164,31 @@ export default defineConfig(async ({ mode }) => {
             }),
             viteStaticCopy({
                 targets: [
-                    // Self-host GraphiQL's pinned React 18 + GraphiQL UMD bundles for the standalone
+                    // Self-host GraphiQL's pinned React 18 + GraphiQL UMD/CSS bundles for the standalone
                     // /graphiql page (see public/graphiql.html), so it works under a strict same-origin
-                    // CSP instead of loading from a CDN. Pulled from node_modules at build/dev-serve time
-                    // instead of committing binaries to git. Aliased to react-18/react-dom-18 in
-                    // package.json since the main app depends on react@17.
-                    { src: 'node_modules/react-18/umd/react.production.min.js', dest: 'assets/graphiql' },
+                    // CSP instead of loading from a CDN. These come from graphiql-vendor/, a separate
+                    // mini yarn project (its own package.json + yarn.lock, installed by the
+                    // graphiqlVendorInstall Gradle task) kept isolated from the main app's dependency
+                    // tree since the app depends on react@17 while GraphiQL 4 requires react@18.
                     {
-                        src: 'node_modules/react-dom-18/umd/react-dom.production.min.js',
+                        src: path.resolve(__dirname, 'graphiql-vendor/node_modules/react-18/umd/react.production.min.js'),
                         dest: 'assets/graphiql',
                     },
-                    { src: 'node_modules/graphiql/graphiql.min.js', dest: 'assets/graphiql' },
-                    { src: 'node_modules/graphiql/graphiql.min.css', dest: 'assets/graphiql' },
+                    {
+                        src: path.resolve(
+                            __dirname,
+                            'graphiql-vendor/node_modules/react-dom-18/umd/react-dom.production.min.js',
+                        ),
+                        dest: 'assets/graphiql',
+                    },
+                    {
+                        src: path.resolve(__dirname, 'graphiql-vendor/node_modules/graphiql/graphiql.min.js'),
+                        dest: 'assets/graphiql',
+                    },
+                    {
+                        src: path.resolve(__dirname, 'graphiql-vendor/node_modules/graphiql/graphiql.min.css'),
+                        dest: 'assets/graphiql',
+                    },
                 ],
             }),
             viteStaticCopy({

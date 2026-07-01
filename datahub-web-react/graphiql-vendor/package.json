@@ -1,0 +1,11 @@
+{
+  "name": "graphiql-vendor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Isolated dependency set for self-hosting GraphiQL's React 18 + GraphiQL UMD/CSS bundles (see ../public/graphiql.html), kept out of the main app's yarn.lock since the app depends on react@17.",
+  "dependencies": {
+    "graphiql": "4.0.3",
+    "react-18": "npm:react@18.3.1",
+    "react-dom-18": "npm:react-dom@18.3.1"
+  }
+}

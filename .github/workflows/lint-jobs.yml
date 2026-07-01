@@ -251,7 +251,7 @@ jobs:
         with:
           path: |
             ${{ env.YARN_CACHE_FOLDER }}
-          key: "yarn-${{ github.base_ref }}-${{ hashFiles('./datahub-web-react/yarn.lock') }}"
+          key: "yarn-${{ github.base_ref }}-${{ hashFiles('./datahub-web-react/yarn.lock', './datahub-web-react/graphiql-vendor/yarn.lock') }}"
       - uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5
       - name: Run lint
         run: |
@@ -280,7 +280,7 @@ jobs:
         with:
           path: |
             ${{ env.YARN_CACHE_FOLDER }}
-          key: "yarn-${{ github.base_ref }}-${{ hashFiles('./datahub-web-react/yarn.lock') }}"
+          key: "yarn-${{ github.base_ref }}-${{ hashFiles('./datahub-web-react/yarn.lock', './datahub-web-react/graphiql-vendor/yarn.lock') }}"
 
   playwright-e2e-lint:
     name: playwright-e2e-lint

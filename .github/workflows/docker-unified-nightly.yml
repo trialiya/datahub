@@ -109,7 +109,7 @@ jobs:
       - name: Compute Yarn Cache Key
         id: yarn-cache-key
         run: |
-          echo "yarn_cache_key=docker-unified-nightly-${{ runner.os }}-yarn-${{ hashFiles('./smoke-test/tests/cypress/yarn.lock', './datahub-web-react/yarn.lock') }}" >> "$GITHUB_OUTPUT"
+          echo "yarn_cache_key=docker-unified-nightly-${{ runner.os }}-yarn-${{ hashFiles('./smoke-test/tests/cypress/yarn.lock', './datahub-web-react/yarn.lock', './datahub-web-react/graphiql-vendor/yarn.lock') }}" >> "$GITHUB_OUTPUT"
           echo "yarn_cache_key_prefix=docker-unified-nightly-${{ runner.os }}-yarn-" >> "$GITHUB_OUTPUT"
 
       - name: Download build Metadata for latest master build
