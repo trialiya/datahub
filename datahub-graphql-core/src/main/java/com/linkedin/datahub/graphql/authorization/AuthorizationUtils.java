@@ -399,21 +399,6 @@ public class AuthorizationUtils {
     return isAuthorized(context, entityType, input.getUrn(), orPrivilegeGroups);
   }
 
-  public static boolean isAuthorizedForTags(
-      @Nonnull QueryContext context,
-      @Nonnull String resourceType,
-      @Nonnull String resource,
-      @Nonnull DisjunctivePrivilegeGroup privilegeGroup,
-      @Nonnull Collection<Urn> tagUrns) {
-    final EntitySpec resourceSpec = new EntitySpec(resourceType, resource);
-    final Set<EntitySpec> subResources =
-        tagUrns.stream()
-            .map(tagUrn -> new EntitySpec(TAG_ENTITY_NAME, tagUrn.toString()))
-            .collect(Collectors.toSet());
-    return AuthUtil.isAuthorized(
-        context.getOperationContext(), privilegeGroup, resourceSpec, subResources);
-  }
-
   public static boolean isViewDatasetUsageAuthorized(
       final QueryContext context, final Urn resourceUrn) {
     return AuthUtil.isAuthorized(

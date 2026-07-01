@@ -84,7 +84,7 @@ public class PatchEntityResolverTest {
     // Mock authorization result
     AuthorizationResult mockAuthResult = mock(AuthorizationResult.class);
     when(mockAuthResult.getType()).thenReturn(AuthorizationResult.Type.ALLOW);
-    when(_operationContext.authorize(any(), any(), any())).thenReturn(mockAuthResult);
+    when(_operationContext.authorize(any(), any())).thenReturn(mockAuthResult);
 
     // Act
     CompletableFuture<PatchEntityResult> future = _resolver.get(_environment);
@@ -132,7 +132,7 @@ public class PatchEntityResolverTest {
     // Mock authorization result
     AuthorizationResult mockAuthResult = mock(AuthorizationResult.class);
     when(mockAuthResult.getType()).thenReturn(AuthorizationResult.Type.ALLOW);
-    when(_operationContext.authorize(any(), any(), any())).thenReturn(mockAuthResult);
+    when(_operationContext.authorize(any(), any())).thenReturn(mockAuthResult);
 
     // Act
     CompletableFuture<PatchEntityResult> future = _resolver.get(_environment);

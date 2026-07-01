@@ -152,10 +152,7 @@
                 "type" : "com.linkedin.common.AuditStamp",
                 "doc" : "When the aspect was last modified and the actor that performed the modification",
                 "optional" : true
-              } ],
-              "Aspect" : {
-                "name" : "systemMetadata"
-              }
+              } ]
             }
           } ]
         }
@@ -410,6 +407,7 @@
       "type" : "string",
       "doc" : "Title of the chart",
       "Searchable" : {
+        "boostScore" : 10.0,
         "enableAutocomplete" : true,
         "fieldNameAliases" : [ "_entityName" ],
         "fieldType" : "WORD_GRAM"

@@ -212,10 +212,7 @@
         "type" : [ "null", "com.linkedin.pegasus2avro.common.AuditStamp" ],
         "doc" : "When the aspect was last modified and the actor that performed the modification",
         "default" : null
-      } ],
-      "Aspect" : {
-        "name" : "systemMetadata"
-      }
+      } ]
     } ],
     "doc" : "System properties that one might want to attach to an event",
     "default" : null

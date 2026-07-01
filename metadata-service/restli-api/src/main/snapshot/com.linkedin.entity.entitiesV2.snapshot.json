@@ -161,10 +161,7 @@
                 "type" : "com.linkedin.common.AuditStamp",
                 "doc" : "When the aspect was last modified and the actor that performed the modification",
                 "optional" : true
-              } ],
-              "Aspect" : {
-                "name" : "systemMetadata"
-              }
+              } ]
             },
             "doc" : "The system metadata for this aspect\n",
             "optional" : true
