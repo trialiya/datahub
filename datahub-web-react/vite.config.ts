@@ -164,6 +164,22 @@ export default defineConfig(async ({ mode }) => {
             }),
             viteStaticCopy({
                 targets: [
+                    // Self-host GraphiQL's pinned React 18 + GraphiQL UMD bundles for the standalone
+                    // /graphiql page (see public/graphiql.html), so it works under a strict same-origin
+                    // CSP instead of loading from a CDN. Pulled from node_modules at build/dev-serve time
+                    // instead of committing binaries to git. Aliased to react-18/react-dom-18 in
+                    // package.json since the main app depends on react@17.
+                    { src: 'node_modules/react-18/umd/react.production.min.js', dest: 'assets/graphiql' },
+                    {
+                        src: 'node_modules/react-dom-18/umd/react-dom.production.min.js',
+                        dest: 'assets/graphiql',
+                    },
+                    { src: 'node_modules/graphiql/graphiql.min.js', dest: 'assets/graphiql' },
+                    { src: 'node_modules/graphiql/graphiql.min.css', dest: 'assets/graphiql' },
+                ],
+            }),
+            viteStaticCopy({
+                targets: [
                     // Selective Monaco Editor files — only what DataHub actually uses (YAML + SQL).
                     // structured: true mirrors the node_modules/... path into the build directory,
                     // so Monaco's AMD loader can find files at /node_modules/monaco-editor/min/vs/*.
