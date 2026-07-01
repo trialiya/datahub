@@ -44,7 +44,7 @@ export enum PageRoutes {
 }
 
 export enum HelpLinkRoutes {
-    GRAPHIQL = '/api/graphiql',
+    GRAPHIQL = '/graphiql',
     OPENAPI = '/openapi/swagger-ui/index.html',
 }
 

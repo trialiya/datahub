@@ -49,6 +49,11 @@ GET           /assets/*file                                                    c
 GET           /node_modules/*file                                              controllers.Assets.at(path="/public/node_modules", file)
 GET           /manifest.json                                                   controllers.Assets.at(path="/public", file="manifest.json")
 
+# Standalone GraphiQL page. Served as a self-contained static page (not part of the React SPA, which is
+# pinned to React 17 while GraphiQL 4 needs React 18). Its React 18 + GraphiQL assets live under
+# /public/assets/graphiql and are served by the /assets/*file route above. Must precede the wildcard.
+GET           /graphiql                                                        controllers.Assets.at(path="/public", file="graphiql.html")
+
 # Wildcard route accepts any routes and delegates to serveAsset which in turn serves the React Bundle's index.html
 # Trailing-slash redirects are handled by BasePathRedirectFilter before routing.
 GET           /*path                                                           controllers.Application.index(path)

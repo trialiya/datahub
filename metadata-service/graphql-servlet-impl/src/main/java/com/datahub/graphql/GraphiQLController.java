@@ -1,25 +1,24 @@
 package com.datahub.graphql;
 
-import static java.nio.charset.StandardCharsets.*;
-
 import com.linkedin.datahub.graphql.concurrency.GraphQLConcurrencyUtils;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.io.UncheckedIOException;
+import java.net.URI;
 import java.util.concurrent.CompletableFuture;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.core.io.Resource;
-import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
-import org.springframework.util.FileCopyUtils;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.ResponseBody;
 
-@Slf4j
+/**
+ * The GraphiQL interactive query UI is now a self-contained static page served by datahub-frontend at
+ * {@code /graphiql} (assets are self-hosted under {@code /assets/graphiql}, so it works under a strict
+ * Content-Security-Policy without relying on a third-party CDN). This controller keeps the legacy
+ * {@code /api/graphiql} URL working by redirecting to the new location.
+ *
+ * <p>The redirect target is relative ({@code ../graphiql}) so the browser resolves it against the page
+ * URL — this is correct whether DataHub is served at the root or under a base path, without GMS needing
+ * to know the base path.
+ */
 @Controller
 @ConditionalOnProperty(
     name = "graphql.graphiql.enabled",
@@ -27,36 +26,13 @@ import org.springframework.web.bind.annotation.ResponseBody;
     matchIfMissing = true)
 public class GraphiQLController {
 
-  private final String graphiqlHtml;
+  // Relative so the browser resolves it against the request URL, which is base-path correct.
+  private static final URI REDIRECT_LOCATION = URI.create("../graphiql");
 
-  public GraphiQLController() {
-    Resource graphiQLResource = new ClassPathResource("graphiql/index.html");
-    try (Reader reader = new InputStreamReader(graphiQLResource.getInputStream(), UTF_8)) {
-      this.graphiqlHtml = FileCopyUtils.copyToString(reader);
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
-  }
-
-  @GetMapping(value = "/api/graphiql", produces = MediaType.TEXT_HTML_VALUE + ";charset=UTF-8")
-  @ResponseBody
-  CompletableFuture<String> graphiQL(HttpServletResponse response) {
+  @GetMapping(value = "/api/graphiql")
+  CompletableFuture<ResponseEntity<Void>> graphiQL() {
     return GraphQLConcurrencyUtils.supplyAsync(
-        () -> {
-          // Add Content Security Policy headers to allow unpkg.com for external resources
-          response.setHeader(
-              "Content-Security-Policy",
-              "default-src 'self'; "
-                  + "script-src 'self' https://unpkg.com 'unsafe-inline'; "
-                  + "style-src 'self' https://unpkg.com 'unsafe-inline'; "
-                  + "img-src 'self' data:; "
-                  + "connect-src 'self'");
-
-          response.setHeader("X-Content-Type-Options", "nosniff");
-          response.setHeader("X-Frame-Options", "DENY");
-
-          return this.graphiqlHtml;
-        },
+        () -> ResponseEntity.status(HttpStatus.FOUND).location(REDIRECT_LOCATION).build(),
         this.getClass().getSimpleName(),
         "graphiQL");
   }

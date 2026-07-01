@@ -4,9 +4,16 @@
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link href="https://unpkg.com/graphiql@4.0.3/graphiql.min.css"
+    <title>DataHub GraphiQL</title>
+
+    <!--
+      Assets are self-hosted (served from this app's origin under /assets/graphiql) instead of a public
+      CDN. This keeps GraphiQL working under a strict Content-Security-Policy that only allows 'self'
+      for script-src/style-src (see datahub-frontend/conf/application.conf), and removes the third-party
+      CDN dependency. Paths are relative so they resolve correctly under base-path deployments.
+    -->
+    <link href="assets/graphiql/graphiql.min.css"
           rel="stylesheet"
-          crossorigin="anonymous"
           integrity="sha384-6ZaxvqvxdqMCDsD9wNOq+NxheDM6rTYy4eeE/fZmPonsSKffQ7nV+IQNzLemeuSH" />
 
     <style>
@@ -26,22 +33,19 @@
 <body>
 <div id="graphiql">Loading GraphiQL...</div>
 
-<!-- Using production versions of React 18 -->
-<script crossorigin="anonymous"
-        src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"
+<!-- Using production versions of React 18 (self-hosted; GraphiQL 4 requires React 18) -->
+<script src="assets/graphiql/react.production.min.js"
         integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z"></script>
-<script crossorigin="anonymous"
-        src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"
+<script src="assets/graphiql/react-dom.production.min.js"
         integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1"></script>
-<script crossorigin="anonymous"
-        src="https://unpkg.com/graphiql@4.0.3/graphiql.min.js"
-        crossorigin="anonymous"
+<script src="assets/graphiql/graphiql.min.js"
         integrity="sha384-naAA3pYPARITlxC7GwToGuWsRdWfcCBgwIRLMDY6t7YKpjASnzW27h0gm4PIW06W"></script>
 
 <script>
-    // Extract base path from current location
-    const basePath = location.pathname.replace('/api/graphiql', '');
-    
+    // Derive the deployment base path from the page URL so the GraphQL endpoint and (relative) asset
+    // URLs work whether DataHub is served at the root or under a base path (e.g. /mybase/graphiql).
+    const basePath = location.pathname.replace(/\/graphiql\/?$/, '');
+
     const fetcher = GraphiQL.createFetcher({
       url: `${location.protocol}//${location.host}${basePath}/api/graphql`,
     });
@@ -51,10 +55,9 @@
       React.createElement(GraphiQL, {
         fetcher: fetcher,
         defaultVariableEditorOpen: true,
-        // Additional modern options
         shouldPersistHeaders: true,
         headers: '',
-        plugins: [], // Support for plugins in modern GraphiQL
+        plugins: [],
       })
     );
 </script>
