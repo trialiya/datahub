@@ -328,6 +328,11 @@ type EntityPrivileges {
   canEditIncidents: Boolean
 
   """
+  Whether or not a user can create, edit, or delete notes attached to this entity
+  """
+  canEditNotes: Boolean
+
+  """
   Whether or not a user can update assertions for an asset
   """
   canEditAssertions: Boolean

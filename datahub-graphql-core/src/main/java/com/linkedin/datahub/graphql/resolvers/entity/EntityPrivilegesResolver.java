@@ -164,6 +164,7 @@ public class EntityPrivilegesResolver implements DataFetcher<CompletableFuture<E
     result.setCanEditAssertions(
         AssertionUtils.isAuthorizedToEditAssertionFromAssertee(context, urn));
     result.setCanEditIncidents(IncidentUtils.isAuthorizedToEditIncidentForResource(urn, context));
+    result.setCanEditNotes(AuthorizationUtils.canEditEntityNotes(urn, context));
     result.setCanEditDomains(
         DomainUtils.isAuthorizedToUpdateDomainsForEntity(context, urn, _entityClient));
     result.setCanEditDataProducts(

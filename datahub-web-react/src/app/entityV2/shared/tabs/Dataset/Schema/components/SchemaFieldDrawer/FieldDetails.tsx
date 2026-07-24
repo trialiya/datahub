@@ -4,7 +4,7 @@ import { Button, Typography } from 'antd';
 import React, { useState } from 'react';
 import styled from 'styled-components';
 import { Deprecation, SubResourceType, UsageQueryResult } from '../../../../../../../../types.generated';
-import { useMutationUrn } from '../../../../../../../entity/shared/EntityContext';
+import { useEntityData, useMutationUrn } from '../../../../../../../entity/shared/EntityContext';
 import { UpdateDeprecationModal } from '../../../../../EntityDropdown/UpdateDeprecationModal';
 import CreateEntityAnnouncementModal from '../../../../../announce/CreateEntityAnnouncementModal';
 import { DeprecationIcon } from '../../../../../components/styled/DeprecationIcon';
@@ -82,6 +82,8 @@ type FieldDetailsProps = {
 
 export const FieldDetails = ({ fieldPath, deprecation, usageStats, refetch, refetchNotes }: FieldDetailsProps) => {
     const isSchemaEditable = React.useContext(SchemaEditableContext);
+    const { entityData } = useEntityData();
+    const canEditNotes = !!entityData?.privileges?.canEditNotes;
     const [isDeprecationModalVisible, setIsDeprecationModalVisible] = useState(false);
     const [isPostModalVisible, setIsPostModalVisible] = useState(false);
 
@@ -126,7 +128,7 @@ export const FieldDetails = ({ fieldPath, deprecation, usageStats, refetch, refe
                 </PopularityContainer>
                 <NotesWrapper>
                     <DetailLabel>Notes</DetailLabel>
-                    {isSchemaEditable && (
+                    {isSchemaEditable && canEditNotes && (
                         <Button
                             type="text"
                             style={{

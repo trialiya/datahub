@@ -29,11 +29,6 @@ public class CreatePostResolver implements DataFetcher<CompletableFuture<Boolean
       throws Exception {
     final QueryContext context = environment.getContext();
 
-    if (!AuthorizationUtils.canCreateGlobalAnnouncements(context)) {
-      throw new AuthorizationException(
-          "Unauthorized to create posts. Please contact your DataHub administrator if this needs corrective action.");
-    }
-
     final CreatePostInput input =
         bindArgument(environment.getArgument("input"), CreatePostInput.class);
     final PostType type = input.getPostType();
@@ -55,6 +50,19 @@ public class CreatePostResolver implements DataFetcher<CompletableFuture<Boolean
               .toString();
     } else {
       targetUrn = targetResource;
+    }
+
+    // Notes attached to a specific entity are gated by the entity-scoped EDIT_ENTITY_NOTES
+    // privilege, while home page announcements continue to require the global announcement
+    // privileges.
+    if (targetUrn != null) {
+      if (!AuthorizationUtils.canEditEntityNotes(UrnUtils.getUrn(targetUrn), context)) {
+        throw new AuthorizationException(
+            "Unauthorized to create notes for this entity. Please contact your DataHub administrator if this needs corrective action.");
+      }
+    } else if (!AuthorizationUtils.canCreateGlobalAnnouncements(context)) {
+      throw new AuthorizationException(
+          "Unauthorized to create posts. Please contact your DataHub administrator if this needs corrective action.");
     }
 
     Media media =

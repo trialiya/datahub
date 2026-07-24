@@ -27,6 +27,8 @@ public class CreatePostResolverTest {
   private static final String POST_TITLE = "title";
   private static final String POST_DESCRIPTION = "description";
   private static final String POST_LINK = "https://datahubproject.io";
+  private static final String RESOURCE_URN =
+      "urn:li:dataset:(urn:li:dataPlatform:mysql,my_db.my_table,PROD)";
   private PostService _postService;
   private CreatePostResolver _resolver;
   private DataFetchingEnvironment _dataFetchingEnvironment;
@@ -95,6 +97,38 @@ public class CreatePostResolverTest {
     when(_dataFetchingEnvironment.getArgument(eq("input"))).thenReturn(input);
     when(_postService.createPost(
             any(), eq(PostType.HOME_PAGE_ANNOUNCEMENT.toString()), eq(postContentObj), any()))
+        .thenReturn(true);
+
+    assertTrue(_resolver.get(_dataFetchingEnvironment).join());
+  }
+
+  @Test
+  public void testCreateEntityNote() throws Exception {
+    QueryContext mockContext = getMockAllowContext();
+    when(_dataFetchingEnvironment.getContext()).thenReturn(mockContext);
+    when(mockContext.getAuthentication()).thenReturn(_authentication);
+
+    UpdatePostContentInput content = new UpdatePostContentInput();
+    content.setTitle(POST_TITLE);
+    content.setContentType(POST_CONTENT_TYPE);
+    com.linkedin.post.PostContent postContentObj =
+        new com.linkedin.post.PostContent()
+            .setType(com.linkedin.post.PostContentType.valueOf(POST_CONTENT_TYPE.toString()))
+            .setTitle(POST_TITLE);
+    when(_postService.mapPostContent(
+            eq(POST_CONTENT_TYPE.toString()), eq(POST_TITLE), any(), any(), any()))
+        .thenReturn(postContentObj);
+
+    CreatePostInput input = new CreatePostInput();
+    input.setPostType(PostType.ENTITY_ANNOUNCEMENT);
+    input.setContent(content);
+    input.setResourceUrn(RESOURCE_URN);
+    when(_dataFetchingEnvironment.getArgument(eq("input"))).thenReturn(input);
+    when(_postService.createPost(
+            any(),
+            eq(PostType.ENTITY_ANNOUNCEMENT.toString()),
+            eq(postContentObj),
+            eq(RESOURCE_URN)))
         .thenReturn(true);
 
     assertTrue(_resolver.get(_dataFetchingEnvironment).join());

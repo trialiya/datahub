@@ -213,7 +213,7 @@ const EntityDropdown = (props: Props) => {
                                 )}
                             </Menu.Item>
                         )}
-                        {menuItems.has(EntityMenuItems.ANNOUNCE) && (
+                        {menuItems.has(EntityMenuItems.ANNOUNCE) && entityData?.privileges?.canEditNotes && (
                             <Menu.Item key="1-1">
                                 <MenuItem onClick={() => setIsEntityAnnouncementModalVisible(true)}>
                                     <NotificationOutlined />

@@ -13,6 +13,7 @@ import com.datahub.authorization.DisjunctivePrivilegeGroup;
 import com.datahub.authorization.EntitySpec;
 import com.google.common.collect.ImmutableList;
 import com.linkedin.common.urn.Urn;
+import com.linkedin.common.urn.UrnUtils;
 import com.linkedin.datahub.graphql.QueryContext;
 import com.linkedin.metadata.authorization.PoliciesConfig;
 import io.datahubproject.metadata.context.OperationContext;
@@ -140,6 +141,23 @@ public class AuthorizationUtils {
   public static boolean canManageGlobalAnnouncements(@Nonnull QueryContext context) {
     return AuthUtil.isAuthorized(
         context.getOperationContext(), PoliciesConfig.MANAGE_GLOBAL_ANNOUNCEMENTS_PRIVILEGE);
+  }
+
+  public static boolean canEditEntityNotes(@Nonnull Urn targetUrn, @Nonnull QueryContext context) {
+    // Notes attached to a schema field are governed by the parent entity's policy, mirroring the
+    // way column-level tag/term privileges resolve against the parent dataset.
+    final Urn authUrn =
+        SCHEMA_FIELD_ENTITY_NAME.equals(targetUrn.getEntityType())
+            ? UrnUtils.getUrn(targetUrn.getId())
+            : targetUrn;
+    final DisjunctivePrivilegeGroup orPrivilegeGroups =
+        new DisjunctivePrivilegeGroup(
+            ImmutableList.of(
+                ALL_PRIVILEGES_GROUP,
+                new ConjunctivePrivilegeGroup(
+                    ImmutableList.of(PoliciesConfig.EDIT_ENTITY_NOTES_PRIVILEGE.getType()))));
+
+    return isAuthorized(context, authUrn.getEntityType(), authUrn.toString(), orPrivilegeGroups);
   }
 
   public static boolean canManageGlobalViews(@Nonnull QueryContext context) {

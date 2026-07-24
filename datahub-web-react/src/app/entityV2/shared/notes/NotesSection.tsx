@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import styled from 'styled-components';
 import { useDeletePostMutation } from '../../../../graphql/post.generated';
 import { Post } from '../../../../types.generated';
+import { useEntityData } from '../../../entity/shared/EntityContext';
 import CustomAvatar from '../../../shared/avatar/CustomAvatar';
 import { COLORS } from '../../../sharedV2/colors';
 import CreateEntityAnnouncementModal from '../announce/CreateEntityAnnouncementModal';
@@ -32,6 +33,8 @@ interface Props {
 
 export default function NotesSection({ urn, subResource, notes, refetch, showEmpty }: Props) {
     const isSchemaEditable = React.useContext(SchemaEditableContext);
+    const { entityData } = useEntityData();
+    const canEditNotes = !!entityData?.privileges?.canEditNotes;
     const [showAddModal, setShowAddModal] = useState(false);
 
     const content = notes?.length ? (
@@ -57,7 +60,8 @@ export default function NotesSection({ urn, subResource, notes, refetch, showEmp
                 title="Notes"
                 content={content}
                 extra={
-                    isSchemaEditable && (
+                    isSchemaEditable &&
+                    canEditNotes && (
                         <SectionActionButton
                             button={<AddRoundedIcon />}
                             onClick={(event) => {
@@ -163,6 +167,8 @@ interface NoteProps {
 
 function SidebarNote({ note, parentUrn, parentSubResource, refetch }: NoteProps) {
     const isSchemaEditable = React.useContext(SchemaEditableContext);
+    const { entityData } = useEntityData();
+    const canEditNotes = !!entityData?.privileges?.canEditNotes;
     const [showEditModal, setShowEditModal] = useState(false);
     const [deletePost] = useDeletePostMutation();
 
@@ -193,7 +199,7 @@ function SidebarNote({ note, parentUrn, parentSubResource, refetch }: NoteProps)
                     </NoteDescriptionContainer>
                 )}
             </NoteContent>
-            {isSchemaEditable && (
+            {isSchemaEditable && canEditNotes && (
                 <NoteEditWrapper>
                     <NoteEditIcons>
                         <SectionActionButton button={<EditOutlinedIcon />} onClick={() => setShowEditModal(true)} />

@@ -103,6 +103,25 @@ public class PostService {
     return true;
   }
 
+  /**
+   * Returns the entity URN that a post is attached to, or null if the post is not associated with
+   * any entity (e.g. a home page announcement). Throws if the post does not exist.
+   */
+  @Nullable
+  public Urn getPostTarget(@Nonnull OperationContext opContext, @Nonnull Urn postUrn)
+      throws RemoteInvocationException {
+    final EntityResponse response =
+        _entityClient.getV2(
+            opContext, postUrn.getEntityType(), postUrn, Set.of(POST_INFO_ASPECT_NAME));
+    if (response == null || !response.getAspects().containsKey(POST_INFO_ASPECT_NAME)) {
+      throw new RuntimeException(String.format("Post %s does not exist", postUrn));
+    }
+
+    final DataMap dataMap = response.getAspects().get(POST_INFO_ASPECT_NAME).getValue().data();
+    final PostInfo existingPost = new PostInfo(dataMap);
+    return existingPost.hasTarget() ? existingPost.getTarget() : null;
+  }
+
   public boolean deletePost(@Nonnull OperationContext opContext, @Nonnull Urn postUrn)
       throws RemoteInvocationException {
     if (!_entityClient.exists(opContext, postUrn)) {

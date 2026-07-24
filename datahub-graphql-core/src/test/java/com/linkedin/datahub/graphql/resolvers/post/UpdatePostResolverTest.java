@@ -115,4 +115,37 @@ public class UpdatePostResolverTest {
     assertTrue(resolver.get(dataFetchingEnvironment).join());
     verify(postService, times(1)).updatePost(any(), any(), any(), any());
   }
+
+  @Test
+  public void testUpdateEntityNote() throws Exception {
+    QueryContext mockContext = getMockAllowContext();
+    when(dataFetchingEnvironment.getContext()).thenReturn(mockContext);
+    when(mockContext.getAuthentication()).thenReturn(authentication);
+
+    UpdatePostContentInput content = new UpdatePostContentInput();
+    content.setTitle(POST_TITLE);
+    content.setContentType(POST_CONTENT_TYPE);
+    com.linkedin.post.PostContent postContentObj =
+        new com.linkedin.post.PostContent()
+            .setType(com.linkedin.post.PostContentType.valueOf(POST_CONTENT_TYPE.toString()))
+            .setTitle(POST_TITLE);
+    when(postService.mapPostContent(
+            eq(POST_CONTENT_TYPE.toString()), eq(POST_TITLE), any(), any(), any()))
+        .thenReturn(postContentObj);
+
+    UpdatePostInput input = new UpdatePostInput();
+    input.setUrn(TEST_URN.toString());
+    input.setPostType(PostType.ENTITY_ANNOUNCEMENT);
+    input.setContent(content);
+    when(dataFetchingEnvironment.getArgument("input")).thenReturn(input);
+    when(postService.getPostTarget(any(), eq(TEST_URN)))
+        .thenReturn(
+            UrnUtils.getUrn("urn:li:dataset:(urn:li:dataPlatform:mysql,my_db.my_table,PROD)"));
+    when(postService.updatePost(
+            any(), eq(TEST_URN), eq(PostType.ENTITY_ANNOUNCEMENT.toString()), eq(postContentObj)))
+        .thenReturn(true);
+
+    assertTrue(resolver.get(dataFetchingEnvironment).join());
+    verify(postService, times(1)).updatePost(any(), any(), any(), any());
+  }
 }

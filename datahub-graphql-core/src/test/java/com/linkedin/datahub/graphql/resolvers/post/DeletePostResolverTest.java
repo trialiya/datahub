@@ -15,6 +15,8 @@ import org.testng.annotations.Test;
 
 public class DeletePostResolverTest {
   private static final String POST_URN_STRING = "urn:li:post:123";
+  private static final String RESOURCE_URN_STRING =
+      "urn:li:dataset:(urn:li:dataPlatform:mysql,my_db.my_table,PROD)";
   private PostService _postService;
   private DeletePostResolver _resolver;
   private DataFetchingEnvironment _dataFetchingEnvironment;
@@ -45,6 +47,21 @@ public class DeletePostResolverTest {
     when(_dataFetchingEnvironment.getContext()).thenReturn(mockContext);
     when(mockContext.getAuthentication()).thenReturn(_authentication);
     when(_dataFetchingEnvironment.getArgument(eq("urn"))).thenReturn(POST_URN_STRING);
+    when(_postService.deletePost(any(), eq(postUrn))).thenReturn(true);
+
+    assertTrue(_resolver.get(_dataFetchingEnvironment).join());
+  }
+
+  @Test
+  public void testDeleteEntityNote() throws Exception {
+    Urn postUrn = UrnUtils.getUrn(POST_URN_STRING);
+
+    QueryContext mockContext = getMockAllowContext();
+    when(_dataFetchingEnvironment.getContext()).thenReturn(mockContext);
+    when(mockContext.getAuthentication()).thenReturn(_authentication);
+    when(_dataFetchingEnvironment.getArgument(eq("urn"))).thenReturn(POST_URN_STRING);
+    when(_postService.getPostTarget(any(), eq(postUrn)))
+        .thenReturn(UrnUtils.getUrn(RESOURCE_URN_STRING));
     when(_postService.deletePost(any(), eq(postUrn))).thenReturn(true);
 
     assertTrue(_resolver.get(_dataFetchingEnvironment).join());

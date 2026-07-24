@@ -33,14 +33,23 @@ public class UpdatePostResolver implements DataFetcher<CompletableFuture<Boolean
       throws Exception {
     final QueryContext context = environment.getContext();
 
-    if (!AuthorizationUtils.canCreateGlobalAnnouncements(context)) {
-      throw new AuthorizationException(
-          "Unauthorized to update posts. Please contact your DataHub administrator if this needs corrective action.");
-    }
-
     final UpdatePostInput input =
         bindArgument(environment.getArgument("input"), UpdatePostInput.class);
     final Urn postUrn = Urn.createFromString(input.getUrn());
+
+    // Notes attached to a specific entity are gated by the entity-scoped EDIT_ENTITY_NOTES
+    // privilege, while home page announcements continue to require the global announcement
+    // privileges.
+    final Urn targetUrn = postService.getPostTarget(context.getOperationContext(), postUrn);
+    if (targetUrn != null) {
+      if (!AuthorizationUtils.canEditEntityNotes(targetUrn, context)) {
+        throw new AuthorizationException(
+            "Unauthorized to update notes for this entity. Please contact your DataHub administrator if this needs corrective action.");
+      }
+    } else if (!AuthorizationUtils.canCreateGlobalAnnouncements(context)) {
+      throw new AuthorizationException(
+          "Unauthorized to update posts. Please contact your DataHub administrator if this needs corrective action.");
+    }
 
     final PostType type = input.getPostType();
     final UpdatePostContentInput content = input.getContent();

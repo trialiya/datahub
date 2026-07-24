@@ -1721,6 +1721,7 @@ fragment entityPrivileges on EntityPrivileges {
     canEditOwners
     canEditAssertions
     canEditIncidents
+    canEditNotes
     canEditDeprecation
     canEditSchemaFieldTags
     canEditSchemaFieldGlossaryTerms

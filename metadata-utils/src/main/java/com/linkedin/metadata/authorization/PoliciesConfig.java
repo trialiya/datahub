@@ -305,6 +305,12 @@ public class PoliciesConfig {
           "Edit Incidents",
           "The ability to create and remove incidents for an entity.");
 
+  public static final Privilege EDIT_ENTITY_NOTES_PRIVILEGE =
+      Privilege.of(
+          "EDIT_ENTITY_NOTES",
+          "Edit Notes",
+          "The ability to create, edit, and remove notes attached to an entity.");
+
   public static final Privilege EDIT_ENTITY_PRIVILEGE =
       Privilege.of(
           "EDIT_ENTITY",
@@ -354,6 +360,7 @@ public class PoliciesConfig {
           DELETE_ENTITY_PRIVILEGE,
           EDIT_ENTITY_PROPERTIES_PRIVILEGE,
           EDIT_ENTITY_INCIDENTS_PRIVILEGE,
+          EDIT_ENTITY_NOTES_PRIVILEGE,
           CREATE_ENTITY_PRIVILEGE,
           EXISTS_ENTITY_PRIVILEGE);
 

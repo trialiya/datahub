@@ -24,13 +24,22 @@ public class DeletePostResolver implements DataFetcher<CompletableFuture<Boolean
       throws Exception {
     final QueryContext context = environment.getContext();
 
-    if (!AuthorizationUtils.canManageGlobalAnnouncements(context)) {
+    final Urn postUrn = UrnUtils.getUrn(environment.getArgument("urn"));
+    final Authentication authentication = context.getAuthentication();
+
+    // Notes attached to a specific entity are gated by the entity-scoped EDIT_ENTITY_NOTES
+    // privilege, while home page announcements continue to require the global announcement
+    // privileges.
+    final Urn targetUrn = _postService.getPostTarget(context.getOperationContext(), postUrn);
+    if (targetUrn != null) {
+      if (!AuthorizationUtils.canEditEntityNotes(targetUrn, context)) {
+        throw new AuthorizationException(
+            "Unauthorized to delete notes for this entity. Please contact your DataHub administrator if this needs corrective action.");
+      }
+    } else if (!AuthorizationUtils.canManageGlobalAnnouncements(context)) {
       throw new AuthorizationException(
           "Unauthorized to delete posts. Please contact your DataHub administrator if this needs corrective action.");
     }
-
-    final Urn postUrn = UrnUtils.getUrn(environment.getArgument("urn"));
-    final Authentication authentication = context.getAuthentication();
 
     return GraphQLConcurrencyUtils.supplyAsync(
         () -> {
