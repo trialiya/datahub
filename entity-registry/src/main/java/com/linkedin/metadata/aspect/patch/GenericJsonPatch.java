@@ -50,15 +50,17 @@ public class GenericJsonPatch {
     @Nonnull private String op;
     @Nonnull private String path;
     @Nullable private Object value;
+    @Nullable private String from;
 
     public Map<String, ?> toMap() {
+      Stream<Pair<String, ?>> pairs = Stream.of(Pair.of("op", op), Pair.of("path", path));
       if (value != null) {
-        return Stream.of(Pair.of("op", op), Pair.of("path", path), Pair.of("value", value))
-            .collect(Collectors.toMap(Pair::getKey, Pair::getValue));
-      } else {
-        return Stream.of(Pair.of("op", op), Pair.of("path", path))
-            .collect(Collectors.toMap(Pair::getKey, Pair::getValue));
+        pairs = Stream.concat(pairs, Stream.of(Pair.of("value", value)));
       }
+      if (from != null) {
+        pairs = Stream.concat(pairs, Stream.of(Pair.of("from", from)));
+      }
+      return pairs.collect(Collectors.toMap(Pair::getKey, Pair::getValue));
     }
   }
 }

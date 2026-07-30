@@ -272,6 +272,7 @@ public class PatchResolverUtils {
                     GenericJsonPatch.PatchOp patchOp = new GenericJsonPatch.PatchOp();
                     patchOp.setOp(op.getOp().toString().toLowerCase());
                     patchOp.setPath(op.getPath());
+                    patchOp.setFrom(op.getFrom());
                     // Always set value for ADD operations (Jakarta JSON Patch requirement)
                     if (op.getOp().toString().equals("ADD") || op.getValue() != null) {
                       patchOp.setValue(processPatchValue(op.getValue(), context));
