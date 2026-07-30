@@ -1114,6 +1114,25 @@ public class PoliciesConfig {
               .build();
 
   /**
+   * Aspects that require an additional, aspect-specific privilege before they can be read, written,
+   * or deleted through the generic entity APIs (OpenAPI v1/v2/v3 and Rest.li), regardless of
+   * whatever entity-level privileges (e.g. EDIT_ENTITY_PRIVILEGE, VIEW_ENTITY_PAGE_PRIVILEGE) the
+   * caller otherwise holds for the entity. Keyed by entity type -> aspect name -> required
+   * privileges.
+   */
+  public static final Map<String, Map<String, Disjunctive<Conjunctive<Privilege>>>>
+      RESTRICTED_ASPECT_PRIVILEGES =
+          ImmutableMap.<String, Map<String, Disjunctive<Conjunctive<Privilege>>>>builder()
+              .put(
+                  Constants.DATASET_ENTITY_NAME,
+                  ImmutableMap.<String, Disjunctive<Conjunctive<Privilege>>>builder()
+                      .put(
+                          Constants.UPSTREAM_LINEAGE_ASPECT_NAME,
+                          Disjunctive.disjoint(EDIT_LINEAGE_PRIVILEGE))
+                      .build())
+              .build();
+
+  /**
    * Define default policies for given actors. Typically used to define allow privileges on self in
    * a common way across APIs
    *

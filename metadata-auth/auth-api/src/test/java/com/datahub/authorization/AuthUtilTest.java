@@ -214,6 +214,63 @@ public class AuthUtilTest {
         "Expected MANAGE permission directly on dataHubPolicy entity");
   }
 
+  @Test
+  public void testRestrictedAspectPrivileges() {
+    Authorizer mockAuthorizer =
+        mockAuthorizer(
+            Map.of(
+                TEST_AUTH_A.getActor().toUrnStr(),
+                    Map.of(
+                        "EDIT_ENTITY", Set.of(TEST_ENTITY_1),
+                        "EDIT_LINEAGE", Set.of(TEST_ENTITY_1)),
+                TEST_AUTH_B.getActor().toUrnStr(), Map.of("EDIT_ENTITY", Set.of(TEST_ENTITY_1))));
+
+    // User A has both EDIT_ENTITY and EDIT_LINEAGE on entity 1: upstreamLineage is authorized.
+    assertTrue(
+        AuthUtil.isAPIAuthorizedAspect(
+            TestAuthSession.from(TEST_AUTH_A, mockAuthorizer),
+            TEST_ENTITY_1,
+            Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected upstreamLineage access allowed given EDIT_LINEAGE_PRIVILEGE");
+    assertTrue(
+        AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
+            TestAuthSession.from(TEST_AUTH_A, mockAuthorizer),
+            ApiOperation.READ,
+            TEST_ENTITY_1,
+            Constants.UPSTREAM_LINEAGE_ASPECT_NAME));
+
+    // User B has only EDIT_ENTITY (no EDIT_LINEAGE) on entity 1: upstreamLineage must be denied,
+    // even though the base entity-level check alone would pass.
+    assertFalse(
+        AuthUtil.isAPIAuthorizedAspect(
+            TestAuthSession.from(TEST_AUTH_B, mockAuthorizer),
+            TEST_ENTITY_1,
+            Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected upstreamLineage access denied without EDIT_LINEAGE_PRIVILEGE");
+    assertFalse(
+        AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
+            TestAuthSession.from(TEST_AUTH_B, mockAuthorizer),
+            ApiOperation.READ,
+            TEST_ENTITY_1,
+            Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected combined entity+aspect check to deny upstreamLineage without EDIT_LINEAGE_PRIVILEGE");
+
+    // Unrestricted aspects are unaffected by the lack of EDIT_LINEAGE_PRIVILEGE.
+    assertTrue(
+        AuthUtil.isAPIAuthorizedAspect(
+            TestAuthSession.from(TEST_AUTH_B, mockAuthorizer), TEST_ENTITY_1, "datasetProperties"),
+        "Expected unrestricted aspects to be unaffected");
+
+    // filterAuthorizedAspects should silently drop upstreamLineage for User B.
+    assertEquals(
+        AuthUtil.filterAuthorizedAspects(
+            TestAuthSession.from(TEST_AUTH_B, mockAuthorizer),
+            TEST_ENTITY_1,
+            Set.of("datasetProperties", Constants.UPSTREAM_LINEAGE_ASPECT_NAME)),
+        Set.of("datasetProperties"),
+        "Expected upstreamLineage filtered out for User B");
+  }
+
   private Authorizer mockAuthorizer(Map<String, Map<String, Set<Urn>>> allowActorPrivUrn) {
     Authorizer authorizer = mock(Authorizer.class);
     when(authorizer.authorize(any()))

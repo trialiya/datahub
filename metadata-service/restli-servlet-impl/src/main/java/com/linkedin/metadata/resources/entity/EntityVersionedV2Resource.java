@@ -98,10 +98,17 @@ public class EntityVersionedV2Resource
     }
     return RestliUtils.toTask(systemOperationContext,
         () -> {
-          final Set<String> projectedAspects =
+          final Set<String> requestedAspects =
               aspectNames == null
                   ? opContext.getEntityAspectNames(entityType)
                   : new HashSet<>(Arrays.asList(aspectNames));
+          final Set<String> projectedAspects =
+              requestedAspects.stream()
+                  .filter(
+                      aspectName ->
+                          com.datahub.authorization.AuthUtil.isAPIAuthorizedAspectForEntityType(
+                              opContext, entityType, aspectName))
+                  .collect(Collectors.toSet());
           try {
             return _entityService.getEntitiesVersionedV2(opContext,
                 versionedUrnStrs.stream()

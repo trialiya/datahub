@@ -138,10 +138,29 @@ public class EntityController
           authentication.getActor().toUrnStr() + " is unauthorized to " + READ + "  entities.");
     }
 
+    // Exclude any aspects (e.g. restricted lineage aspects) the caller isn't individually
+    // authorized to access, regardless of the entity-level READ check above.
+    LinkedHashMap<Urn, Map<AspectSpec, Long>> authorizedRequestMap = new LinkedHashMap<>();
+    for (Map.Entry<Urn, Map<AspectSpec, Long>> entry : requestMap.entrySet()) {
+      Urn urn = entry.getKey();
+      authorizedRequestMap.put(
+          urn,
+          entry.getValue().entrySet().stream()
+              .filter(
+                  aspectEntry ->
+                      AuthUtil.isAPIAuthorizedAspect(
+                          opContext, urn, aspectEntry.getKey().getName()))
+              .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
+    }
+
     return ResponseEntity.of(
         Optional.of(
             buildEntityVersionedAspectList(
-                opContext, requestMap.keySet(), requestMap, withSystemMetadata, true)));
+                opContext,
+                authorizedRequestMap.keySet(),
+                authorizedRequestMap,
+                withSystemMetadata,
+                true)));
   }
 
   @Tag(name = "Generic Entities", description = "API for interacting with generic entities.")

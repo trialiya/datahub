@@ -139,11 +139,19 @@ public class AuthUtil {
 
     return changeUrnMCPs.stream()
         .map(
-            changeUrnMCP ->
-                Pair.of(
-                    changeUrnMCP.getValue(),
-                    authorizationResult.getOrDefault(
-                        changeUrnMCP.getKey(), HttpStatus.SC_INTERNAL_SERVER_ERROR)))
+            changeUrnMCP -> {
+              final MetadataChangeProposal mcp = changeUrnMCP.getValue();
+              int status =
+                  authorizationResult.getOrDefault(
+                      changeUrnMCP.getKey(), HttpStatus.SC_INTERNAL_SERVER_ERROR);
+              if (status == HttpStatus.SC_OK
+                  && mcp.getAspectName() != null
+                  && !isAPIAuthorizedAspect(
+                      session, changeUrnMCP.getKey().getSecond(), mcp.getAspectName())) {
+                status = HttpStatus.SC_FORBIDDEN;
+              }
+              return Pair.of(mcp, status);
+            })
         .collect(Collectors.toList());
   }
 
@@ -269,6 +277,123 @@ public class AuthUtil {
       @Nonnull final ApiOperation apiOperation,
       @Nonnull final String entityType) {
     return isAPIAuthorizedEntityType(session, ENTITY, apiOperation, List.of(entityType));
+  }
+
+  /**
+   * Looks up the aspect-specific privilege restriction (if any) configured in {@link
+   * PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES} for the given entity type / aspect name pair.
+   */
+  @Nullable
+  private static Disjunctive<Conjunctive<PoliciesConfig.Privilege>> lookupRestrictedAspectPrivilege(
+      @Nonnull final String entityType, @Nonnull final String aspectName) {
+    return PoliciesConfig.RESTRICTED_ASPECT_PRIVILEGES
+        .getOrDefault(entityType, Map.of())
+        .get(aspectName);
+  }
+
+  /**
+   * Whether the given (entityType, aspectName) pair carries additional privilege restrictions
+   * beyond the standard entity-level CRUD privileges, e.g. `dataset`'s `upstreamLineage` aspect
+   * requiring EDIT_LINEAGE_PRIVILEGE.
+   */
+  public static boolean isRestrictedAspect(
+      @Nonnull final String entityType, @Nonnull final String aspectName) {
+    return lookupRestrictedAspectPrivilege(entityType, aspectName) != null;
+  }
+
+  /**
+   * Checks only the aspect-specific privilege restriction (if any) for a single urn + aspect name.
+   * This does NOT perform the generic entity-level CRUD check -- callers should combine this with
+   * {@link #isAPIAuthorizedEntityUrns} (or use {@link #isAPIAuthorizedEntityUrnsWithAspect}) to
+   * also enforce the base entity-level privilege.
+   */
+  public static boolean isAPIAuthorizedAspect(
+      @Nonnull final AuthorizationSession session,
+      @Nonnull final Urn urn,
+      @Nonnull final String aspectName) {
+    final Disjunctive<Conjunctive<PoliciesConfig.Privilege>> restrictedPrivileges =
+        lookupRestrictedAspectPrivilege(urn.getEntityType(), aspectName);
+    if (restrictedPrivileges == null) {
+      return true;
+    }
+    return isAPIAuthorized(
+        session, restrictedPrivileges, new EntitySpec(urn.getEntityType(), urn.toString()));
+  }
+
+  /**
+   * Checks the aspect-specific privilege restriction (if any) for an entity type (not scoped to a
+   * specific urn resource). Used by batch APIs that share a single aspect projection across many
+   * urns of the same entity type, where per-urn resource-scoped checks aren't practical.
+   */
+  public static boolean isAPIAuthorizedAspectForEntityType(
+      @Nonnull final AuthorizationSession session,
+      @Nonnull final String entityType,
+      @Nonnull final String aspectName) {
+    final Disjunctive<Conjunctive<PoliciesConfig.Privilege>> restrictedPrivileges =
+        lookupRestrictedAspectPrivilege(entityType, aspectName);
+    if (restrictedPrivileges == null) {
+      return true;
+    }
+    return isAPIAuthorized(session, restrictedPrivileges, new EntitySpec(entityType, ""));
+  }
+
+  /**
+   * Combined entity-level + aspect-level authorization check for a single urn and a single,
+   * explicitly named aspect. Use this for OpenAPI/Rest.li endpoints that get, create, patch, or
+   * delete one named aspect (e.g. `GET /openapi/v3/entity/dataset/{urn}/upstreamLineage`).
+   */
+  public static boolean isAPIAuthorizedEntityUrnsWithAspect(
+      @Nonnull final AuthorizationSession session,
+      @Nonnull final ApiOperation apiOperation,
+      @Nonnull final Urn urn,
+      @Nonnull final String aspectName) {
+    return isAPIAuthorizedEntityUrns(session, apiOperation, List.of(urn))
+        && isAPIAuthorizedAspect(session, urn, aspectName);
+  }
+
+  /**
+   * Filters a collection of aspect names down to those the caller is authorized to access for the
+   * given urn, per any configured aspect-specific privilege restrictions. Intended for endpoints
+   * that project/return multiple aspects at once (e.g. "get entity" with no explicit aspect list,
+   * or search/scroll responses that embed aspects) so that restricted aspects are silently excluded
+   * from the response rather than failing the whole request.
+   */
+  public static Set<String> filterAuthorizedAspects(
+      @Nonnull final AuthorizationSession session,
+      @Nonnull final Urn urn,
+      @Nonnull final Collection<String> aspectNames) {
+    return aspectNames.stream()
+        .filter(aspectName -> isAPIAuthorizedAspect(session, urn, aspectName))
+        .collect(Collectors.toSet());
+  }
+
+  /**
+   * Computes the effective, authorized set of aspect names to project for a given urn given a
+   * requested set of aspect names (empty/null conventionally meaning "all aspects" for the entity
+   * type in most entity/aspect projection APIs). Any requested aspect subject to a restriction (see
+   * {@link PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES}) that the caller isn't authorized for is
+   * excluded from the result. When the entity type carries no restricted aspects at all, the
+   * requested set is returned unchanged (including empty, to preserve "all aspects" semantics
+   * downstream).
+   */
+  public static Set<String> filterAuthorizedProjectedAspects(
+      @Nonnull final AuthorizationSession session,
+      @Nonnull final EntityRegistry entityRegistry,
+      @Nonnull final Urn urn,
+      @Nullable final Collection<String> requestedAspectNames) {
+    if (!PoliciesConfig.RESTRICTED_ASPECT_PRIVILEGES.containsKey(urn.getEntityType())) {
+      return requestedAspectNames == null
+          ? Set.of()
+          : new java.util.HashSet<>(requestedAspectNames);
+    }
+
+    final Collection<String> effectiveRequested =
+        (requestedAspectNames == null || requestedAspectNames.isEmpty())
+            ? entityRegistry.getEntitySpec(urn.getEntityType()).getAspectSpecs().stream()
+                .map(com.linkedin.metadata.models.AspectSpec::getName)
+                .collect(Collectors.toSet())
+            : requestedAspectNames;
+    return filterAuthorizedAspects(session, urn, effectiveRequested);
   }
 
   public static boolean isAPIAuthorizedEntityType(

@@ -138,7 +138,7 @@ public abstract class GenericEntitiesController<
                     urn ->
                         Map.entry(
                             urn,
-                            Optional.ofNullable(aspectNames).orElse(Set.of()).stream()
+                            authorizedAspectNames(opContext, urn, aspectNames).stream()
                                 .map(aspectName -> Map.entry(aspectName, 0L))
                                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))))
                 .collect(
@@ -154,6 +154,54 @@ public abstract class GenericEntitiesController<
 
     return buildEntityVersionedAspectList(
         opContext, urns, aspectSpecMap, withSystemMetadata, expandEmpty);
+  }
+
+  /**
+   * Enforces aspect-specific privilege restrictions (see {@link
+   * com.linkedin.metadata.authorization.PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES}, e.g.
+   * `dataset`'s `upstreamLineage` requiring EDIT_LINEAGE_PRIVILEGE) for a set of requested aspect
+   * names on a given urn.
+   *
+   * <p>If {@code requestedAspectNames} is null/empty (meaning "all aspects"), returns the subset of
+   * this entity's aspect names that the caller is authorized to see -- restricted aspects the
+   * caller lacks privileges for are silently excluded rather than failing the whole request. If
+   * {@code requestedAspectNames} is non-empty (an explicit ask), any restricted aspect the caller
+   * is not authorized for causes an {@link UnauthorizedException}.
+   */
+  protected Set<String> authorizedAspectNames(
+      @Nonnull OperationContext opContext,
+      @Nonnull Urn urn,
+      @Nullable Set<String> requestedAspectNames) {
+    if (requestedAspectNames == null || requestedAspectNames.isEmpty()) {
+      Set<String> allAspectNames =
+          entityRegistry.getEntitySpec(urn.getEntityType()).getAspectSpecs().stream()
+              .map(AspectSpec::getName)
+              .collect(Collectors.toSet());
+      Set<String> restrictedUnauthorized =
+          allAspectNames.stream()
+              .filter(name -> AuthUtil.isRestrictedAspect(urn.getEntityType(), name))
+              .filter(name -> !AuthUtil.isAPIAuthorizedAspect(opContext, urn, name))
+              .collect(Collectors.toSet());
+      if (restrictedUnauthorized.isEmpty()) {
+        return requestedAspectNames == null ? Set.of() : requestedAspectNames;
+      }
+      allAspectNames.removeAll(restrictedUnauthorized);
+      return allAspectNames;
+    }
+
+    Set<String> unauthorized =
+        requestedAspectNames.stream()
+            .filter(name -> !AuthUtil.isAPIAuthorizedAspect(opContext, urn, name))
+            .collect(Collectors.toSet());
+    if (!unauthorized.isEmpty()) {
+      throw new UnauthorizedException(
+          AuthenticationContext.getAuthentication().getActor().toUrnStr()
+              + " is unauthorized to access aspects "
+              + unauthorized
+              + " for "
+              + urn);
+    }
+    return requestedAspectNames;
   }
 
   /**
@@ -392,9 +440,15 @@ public abstract class GenericEntitiesController<
             authentication,
             true);
 
-    if (!AuthUtil.isAPIAuthorizedEntityUrns(opContext, READ, List.of(urn))) {
+    if (!AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(opContext, READ, urn, aspectName)) {
       throw new UnauthorizedException(
-          authentication.getActor().toUrnStr() + " is unauthorized to " + READ + " entities.");
+          authentication.getActor().toUrnStr()
+              + " is unauthorized to "
+              + READ
+              + " aspect "
+              + aspectName
+              + " for "
+              + urn);
     }
 
     final List<E> resultList;
@@ -505,6 +559,21 @@ public abstract class GenericEntitiesController<
     if (aspects == null || aspects.isEmpty() || aspects.contains(entitySpec.getKeyAspectName())) {
       entityService.deleteUrn(opContext, urn);
     } else {
+      List<String> unauthorizedAspects =
+          aspects.stream()
+              .map(aspectName -> lookupAspectSpec(urn, aspectName).get().getName())
+              .filter(aspectName -> !AuthUtil.isAPIAuthorizedAspect(opContext, urn, aspectName))
+              .collect(Collectors.toList());
+      if (!unauthorizedAspects.isEmpty()) {
+        throw new UnauthorizedException(
+            authentication.getActor().toUrnStr()
+                + " is unauthorized to "
+                + DELETE
+                + " aspects "
+                + unauthorizedAspects
+                + " for "
+                + urn);
+      }
       aspects.stream()
           .map(aspectName -> lookupAspectSpec(urn, aspectName).get().getName())
           .forEach(
@@ -574,9 +643,15 @@ public abstract class GenericEntitiesController<
             authentication,
             true);
 
-    if (!AuthUtil.isAPIAuthorizedEntityUrns(opContext, DELETE, List.of(urn))) {
+    if (!AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(opContext, DELETE, urn, aspectName)) {
       throw new UnauthorizedException(
-          authentication.getActor().toUrnStr() + " is unauthorized to " + DELETE + " entities.");
+          authentication.getActor().toUrnStr()
+              + " is unauthorized to "
+              + DELETE
+              + " aspect "
+              + aspectName
+              + " for "
+              + urn);
     }
 
     lookupAspectSpec(urn, aspectName)
@@ -640,9 +715,15 @@ public abstract class GenericEntitiesController<
             authentication,
             true);
 
-    if (!AuthUtil.isAPIAuthorizedEntityUrns(opContext, CREATE, List.of(urn))) {
+    if (!AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(opContext, CREATE, urn, aspectName)) {
       throw new UnauthorizedException(
-          authentication.getActor().toUrnStr() + " is unauthorized to " + CREATE + " entities.");
+          authentication.getActor().toUrnStr()
+              + " is unauthorized to "
+              + CREATE
+              + " aspect "
+              + aspectName
+              + " for "
+              + urn);
     }
 
     AspectSpec aspectSpec = RequestInputUtil.lookupAspectSpec(entitySpec, aspectName).get();
@@ -719,9 +800,15 @@ public abstract class GenericEntitiesController<
             authentication,
             true);
 
-    if (!AuthUtil.isAPIAuthorizedEntityUrns(opContext, UPDATE, List.of(urn))) {
+    if (!AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(opContext, UPDATE, urn, aspectName)) {
       throw new UnauthorizedException(
-          authentication.getActor().toUrnStr() + " is unauthorized to " + UPDATE + " entities.");
+          authentication.getActor().toUrnStr()
+              + " is unauthorized to "
+              + UPDATE
+              + " aspect "
+              + aspectName
+              + " for "
+              + urn);
     }
 
     AspectSpec aspectSpec = RequestInputUtil.lookupAspectSpec(entitySpec, aspectName).get();

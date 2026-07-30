@@ -33,8 +33,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.net.URLDecoder;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -139,26 +141,35 @@ public class EntitiesController {
     }
     // TODO: Only supports one entity type at a time, may cause confusion
     final String entityName = urnToEntityName(entityUrns.iterator().next());
-    final Set<String> projectedAspects =
+    final Set<String> requestedAspects =
         aspectNames == null
             ? opContext.getEntityAspectNames(entityName)
             : new HashSet<>(Arrays.asList(aspectNames));
+    // Group urns by their authorized aspect projection (usually a single group, since most
+    // entity types have no restricted aspects and share the same projection).
+    Map<Set<String>, List<Urn>> urnsByProjection =
+        entityUrns.stream()
+            .collect(
+                Collectors.groupingBy(
+                    urn -> AuthUtil.filterAuthorizedAspects(opContext, urn, requestedAspects)));
     Throwable exceptionally = null;
     try {
+      Map<Urn, com.linkedin.entity.EntityResponse> entityResponses = new HashMap<>();
+      for (Map.Entry<Set<String>, List<Urn>> entry : urnsByProjection.entrySet()) {
+        entityResponses.putAll(
+            _entityService.getEntitiesV2(
+                opContext, entityName, new HashSet<>(entry.getValue()), entry.getKey()));
+      }
       return ResponseEntity.ok(
           UrnResponseMap.builder()
-              .responses(
-                  MappingUtil.mapServiceResponse(
-                      _entityService.getEntitiesV2(
-                          opContext, entityName, entityUrns, projectedAspects),
-                      _objectMapper))
+              .responses(MappingUtil.mapServiceResponse(entityResponses, _objectMapper))
               .build());
     } catch (Exception e) {
       exceptionally = e;
       throw new RuntimeException(
           String.format(
               "Failed to batch get entities with urns: %s, projectedAspects: %s",
-              entityUrns, projectedAspects),
+              entityUrns, requestedAspects),
           e);
     } finally {
       if (exceptionally != null) {
