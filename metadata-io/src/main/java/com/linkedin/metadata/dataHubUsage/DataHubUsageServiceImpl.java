@@ -85,10 +85,13 @@ public class DataHubUsageServiceImpl implements DataHubUsageService {
     searchSourceBuilder.sort(
         SortBuilders.fieldSort(DataHubUsageEventConstants.TIMESTAMP).order(SortOrder.DESC));
     searchSourceBuilder.sort(
-        SortBuilders.fieldSort(DataHubUsageEventConstants.TYPE).order(SortOrder.ASC));
+        SortBuilders.fieldSort(keywordField(DataHubUsageEventConstants.TYPE))
+            .order(SortOrder.ASC)
+            .unmappedType("keyword"));
     searchSourceBuilder.sort(
         SortBuilders.fieldSort(keywordField(DataHubUsageEventConstants.ACTOR_URN))
-            .order(SortOrder.ASC));
+            .order(SortOrder.ASC)
+            .unmappedType("keyword"));
 
     if (StringUtils.isNotBlank(externalAuditEventsSearchRequest.getScrollId())) {
       searchSourceBuilder.searchAfter(
