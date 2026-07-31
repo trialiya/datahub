@@ -28,6 +28,8 @@ This file documents any backwards-incompatible changes in DataHub and assists pe
 
 - #12716: Fix the `platform_instance` being added twice to the URN. If you want to have the previous behavior back, you need to add your platform_instance twice (i.e. `plat.plat`).
 
+- Reading a dataset's `upstreamLineage` aspect through the entity APIs (OpenAPI v1/v2/v3 and Rest.li) now requires the new `VIEW_LINEAGE` privilege. Unlike the usual convention, it is **not** implied by `EDIT_ENTITY` or any other edit privilege — read access is governed exclusively by `VIEW_LINEAGE`. Writing or deleting the aspect continues to require `EDIT_LINEAGE` or `EDIT_ENTITY`. The default Admin, Editor, Reader, asset-owner and root-user policies are updated to grant `VIEW_LINEAGE`, so role-based deployments are unaffected; any custom policy that granted lineage reads through `VIEW_ENTITY_PAGE`/`GET_ENTITY_PRIVILEGE` alone (including the editable "All Users - View Entity Page" default policy) must add `VIEW_LINEAGE` explicitly. Requests that ask only for restricted aspects the caller cannot read now return 403 instead of silently returning the full entity.
+
 
 ### Known Issues
 
