@@ -153,6 +153,18 @@ public class EntitiesController {
                 Collectors.groupingBy(
                     urn ->
                         AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspects)));
+
+    if (urnsByProjection.keySet().stream()
+        .anyMatch(projection -> AuthUtil.isProjectionDenied(requestedAspects, projection))) {
+      // An empty projection would be read as "all aspects" by the entity service.
+      throw new UnauthorizedException(
+          actorUrnStr
+              + " is unauthorized to get aspects "
+              + requestedAspects
+              + " for: "
+              + entityUrns);
+    }
+
     Throwable exceptionally = null;
     try {
       Map<Urn, com.linkedin.entity.EntityResponse> entityResponses = new HashMap<>();

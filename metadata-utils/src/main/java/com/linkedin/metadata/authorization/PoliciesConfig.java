@@ -1123,15 +1123,27 @@ public class PoliciesConfig {
   /**
    * Aspects that require additional, aspect-specific privileges -- on a per {@link ApiOperation}
    * basis -- before they can be read, written, or deleted through the generic entity APIs (OpenAPI
-   * v1/v2/v3 and Rest.li), regardless of whatever entity-level privileges (e.g.
-   * EDIT_ENTITY_PRIVILEGE, VIEW_ENTITY_PAGE_PRIVILEGE) the caller otherwise holds for the entity.
-   * Keyed by entity type -> aspect name -> api operation -> required privileges. An operation
-   * missing from the innermost map is treated as DENY_ACCESS for that operation.
+   * v1/v2/v3 and Rest.li). Keyed by entity type -> aspect name -> api operation -> required
+   * privileges. An operation missing from the innermost map is treated as DENY_ACCESS for that
+   * operation.
    *
-   * <p>Note this intentionally departs from the usual pattern (where holding an EDIT_* privilege
-   * for a resource also implies READ access to it): for a restricted aspect, READ is governed
-   * solely by its own configured read privilege(s), and is NOT implied by the write privilege(s)
-   * below.
+   * <p>These requirements are applied <i>in addition to</i> (i.e. ANDed with) the entity-level
+   * privileges from {@link #API_PRIVILEGE_MAP} / {@link #API_ENTITY_PRIVILEGE_MAP} for the same
+   * operation, so a restricted aspect can only ever be harder to access than the entity it belongs
+   * to, never easier.
+   *
+   * <p>Note the READ entry intentionally departs from the usual pattern (where holding an EDIT_*
+   * privilege for a resource also implies READ access to it): for a restricted aspect, READ is
+   * governed solely by its own configured read privilege(s), and is NOT implied by the write
+   * privilege(s) below. Reading `upstreamLineage` therefore requires VIEW_LINEAGE_PRIVILEGE even
+   * for a caller holding EDIT_ENTITY_PRIVILEGE on the dataset.
+   *
+   * <p>Conversely, keeping EDIT_ENTITY_PRIVILEGE in the write disjunction means the write entries
+   * only narrow access for operations whose entity-level privilege set is broader -- e.g. CREATE
+   * (which also accepts CREATE_ENTITY_PRIVILEGE) and DELETE (DELETE_ENTITY_PRIVILEGE). UPDATE
+   * already requires EDIT_ENTITY_PRIVILEGE at the entity level, so its entry here is satisfied by
+   * anyone who passes the entity-level check; it is listed for completeness and so that tightening
+   * the write privileges later is a single-line change.
    */
   public static final Map<
           String, Map<String, Map<ApiOperation, Disjunctive<Conjunctive<Privilege>>>>>

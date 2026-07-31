@@ -138,7 +138,7 @@ public abstract class GenericEntitiesController<
                     urn ->
                         Map.entry(
                             urn,
-                            authorizedAspectNames(opContext, urn, aspectNames).stream()
+                            authorizedAspectNames(opContext, urn, aspectNames, expandEmpty).stream()
                                 .map(aspectName -> Map.entry(aspectName, 0L))
                                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))))
                 .collect(
@@ -159,20 +159,28 @@ public abstract class GenericEntitiesController<
   /**
    * Enforces aspect-specific privilege restrictions (see {@link
    * com.linkedin.metadata.authorization.PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES}, e.g.
-   * `dataset`'s `upstreamLineage` requiring EDIT_LINEAGE_PRIVILEGE) for a set of requested aspect
-   * names on a given urn.
+   * `dataset`'s `upstreamLineage` requiring VIEW_LINEAGE_PRIVILEGE to read) for a set of requested
+   * aspect names on a given urn.
    *
-   * <p>If {@code requestedAspectNames} is null/empty (meaning "all aspects"), returns the subset of
-   * this entity's aspect names that the caller is authorized to see -- restricted aspects the
-   * caller lacks privileges for are silently excluded rather than failing the whole request. If
-   * {@code requestedAspectNames} is non-empty (an explicit ask), any restricted aspect the caller
-   * is not authorized for causes an {@link UnauthorizedException}.
+   * <p>If {@code requestedAspectNames} is null/empty it is passed through untouched unless {@code
+   * expandEmpty} is set: an empty aspect list only means "all aspects" when {@link
+   * RequestInputUtil#resolveAspectSpecs} is going to expand it, and otherwise means "no aspects" --
+   * expanding it here would hand an unauthorized caller the entity's full aspect list while an
+   * authorized caller (nothing to strip) still got nothing. When expansion does apply, restricted
+   * aspects the caller lacks privileges for are silently excluded rather than failing the whole
+   * request. If {@code requestedAspectNames} is non-empty (an explicit ask), any restricted aspect
+   * the caller is not authorized for causes an {@link UnauthorizedException}.
    */
   protected Set<String> authorizedAspectNames(
       @Nonnull OperationContext opContext,
       @Nonnull Urn urn,
-      @Nullable Set<String> requestedAspectNames) {
+      @Nullable Set<String> requestedAspectNames,
+      boolean expandEmpty) {
     if (requestedAspectNames == null || requestedAspectNames.isEmpty()) {
+      if (!expandEmpty) {
+        // Empty stays empty: downstream resolution will not expand it either.
+        return requestedAspectNames == null ? Set.of() : requestedAspectNames;
+      }
       Set<String> allAspectNames =
           entityRegistry.getEntitySpec(urn.getEntityType()).getAspectSpecs().stream()
               .map(AspectSpec::getName)
@@ -612,6 +620,31 @@ public abstract class GenericEntitiesController<
     }
 
     AspectsBatch batch = toMCPBatch(opContext, jsonEntityList, authentication.getActor());
+
+    // The entity-type level check above says nothing about aspect-specific restrictions (e.g.
+    // `dataset`'s `upstreamLineage`), so enforce those per item before ingesting the batch.
+    List<String> unauthorizedAspects =
+        batch.getMCPItems().stream()
+            .filter(item -> item.getAspectName() != null)
+            .filter(
+                item ->
+                    !AuthUtil.isAPIAuthorizedAspect(
+                        opContext,
+                        AuthUtil.toAspectApiOperation(item.getChangeType()),
+                        item.getUrn(),
+                        item.getAspectName()))
+            .map(item -> item.getUrn() + ":" + item.getAspectName())
+            .distinct()
+            .collect(Collectors.toList());
+    if (!unauthorizedAspects.isEmpty()) {
+      throw new UnauthorizedException(
+          authentication.getActor().toUrnStr()
+              + " is unauthorized to "
+              + CREATE
+              + " aspects "
+              + unauthorizedAspects);
+    }
+
     List<IngestResult> results = entityService.ingestProposal(opContext, batch, async);
 
     if (!async) {

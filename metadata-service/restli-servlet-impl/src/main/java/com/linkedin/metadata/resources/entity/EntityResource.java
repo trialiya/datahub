@@ -217,6 +217,12 @@ public class EntityResource extends CollectionResourceTaskTemplate<String, Entit
           final Set<String> projectedAspects =
               AuthUtil.filterAuthorizedProjectedAspects(
                   opContext, opContext.getEntityRegistry(), urn, requestedAspects);
+          if (AuthUtil.isProjectionDenied(requestedAspects, projectedAspects)) {
+            // An empty projection would be read as "all aspects" by the entity service.
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + requestedAspects + " for " + urn);
+          }
           final Entity entity = entityService.getEntity(opContext, urn, projectedAspects, true);
           if (entity == null) {
             throw RestliUtils.resourceNotFoundException(String.format("Did not find %s", urnStr));
@@ -268,6 +274,14 @@ public class EntityResource extends CollectionResourceTaskTemplate<String, Entit
                               AuthUtil.filterAuthorizedProjectedAspects(
                                   opContext, opContext.getEntityRegistry(), urn, requestedAspects)));
 
+          if (urnsByProjection.keySet().stream()
+              .anyMatch(projection -> AuthUtil.isProjectionDenied(requestedAspects, projection))) {
+            // An empty projection would be read as "all aspects" by the entity service.
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + requestedAspects + " for: " + urnStrs);
+          }
+
           return urnsByProjection.entrySet().stream()
               .flatMap(
                   entry ->
@@ -286,7 +300,8 @@ public class EntityResource extends CollectionResourceTaskTemplate<String, Entit
 
   /**
    * Checks that the caller is authorized for every aspect present in the given entity snapshot
-   * (e.g. `dataset`'s `upstreamLineage` requires EDIT_LINEAGE_PRIVILEGE), throwing a 403 if not.
+   * (e.g. `dataset`'s `upstreamLineage` requires EDIT_LINEAGE_PRIVILEGE or EDIT_ENTITY_PRIVILEGE),
+   * throwing a 403 if not.
    */
   private void checkSnapshotAspectsAuthorizedOrThrow(
       @Nonnull OperationContext opContext,

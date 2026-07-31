@@ -47,6 +47,7 @@ import com.linkedin.mxe.MetadataChangeProposal;
 import com.linkedin.util.Pair;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -288,7 +289,7 @@ public class AuthUtil {
    * treated as CREATE, DELETE as DELETE, and every other (upsert-like) change type as UPDATE.
    */
   @Nonnull
-  private static ApiOperation toAspectApiOperation(@Nonnull final ChangeType changeType) {
+  public static ApiOperation toAspectApiOperation(@Nonnull final ChangeType changeType) {
     switch (changeType) {
       case CREATE_ENTITY:
         return CREATE;
@@ -300,18 +301,43 @@ public class AuthUtil {
   }
 
   /**
+   * Case-insensitive view of {@link PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES}, keyed by
+   * lower-cased entity type and lower-cased aspect name.
+   *
+   * <p>The OpenAPI/Rest.li layers resolve aspect names case-insensitively (see {@code
+   * RequestInputUtil#lookupAspectSpec}), so an exact-match lookup here would let a caller bypass
+   * the restriction entirely simply by requesting e.g. {@code upstreamlineage} instead of {@code
+   * upstreamLineage}. Normalizing both sides closes that hole regardless of whether an individual
+   * call site remembered to normalize its input first.
+   */
+  private static final Map<
+          String,
+          Map<String, Map<ApiOperation, Disjunctive<Conjunctive<PoliciesConfig.Privilege>>>>>
+      NORMALIZED_RESTRICTED_ASPECT_PRIVILEGES =
+          PoliciesConfig.RESTRICTED_ASPECT_PRIVILEGES.entrySet().stream()
+              .collect(
+                  Collectors.toMap(
+                      entityEntry -> entityEntry.getKey().toLowerCase(Locale.ROOT),
+                      entityEntry ->
+                          entityEntry.getValue().entrySet().stream()
+                              .collect(
+                                  Collectors.toMap(
+                                      aspectEntry -> aspectEntry.getKey().toLowerCase(Locale.ROOT),
+                                      Map.Entry::getValue))));
+
+  /**
    * Looks up the aspect-specific privilege restriction (if any) configured in {@link
    * PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES} for the given entity type / aspect name / api
-   * operation triple.
+   * operation triple. Entity type and aspect name are matched case-insensitively.
    */
   @Nullable
   private static Disjunctive<Conjunctive<PoliciesConfig.Privilege>> lookupRestrictedAspectPrivilege(
       @Nonnull final String entityType,
       @Nonnull final String aspectName,
       @Nonnull final ApiOperation apiOperation) {
-    return PoliciesConfig.RESTRICTED_ASPECT_PRIVILEGES
-        .getOrDefault(entityType, Map.of())
-        .getOrDefault(aspectName, Map.of())
+    return NORMALIZED_RESTRICTED_ASPECT_PRIVILEGES
+        .getOrDefault(entityType.toLowerCase(Locale.ROOT), Map.of())
+        .getOrDefault(aspectName.toLowerCase(Locale.ROOT), Map.of())
         .get(apiOperation);
   }
 
@@ -319,13 +345,21 @@ public class AuthUtil {
    * Whether the given (entityType, aspectName) pair carries additional privilege restrictions
    * beyond the standard entity-level CRUD privileges, e.g. `dataset`'s `upstreamLineage` aspect
    * requiring VIEW_LINEAGE_PRIVILEGE to read or EDIT_LINEAGE_PRIVILEGE/EDIT_ENTITY_PRIVILEGE to
-   * write.
+   * write. Entity type and aspect name are matched case-insensitively.
    */
   public static boolean isRestrictedAspect(
       @Nonnull final String entityType, @Nonnull final String aspectName) {
-    return PoliciesConfig.RESTRICTED_ASPECT_PRIVILEGES
-        .getOrDefault(entityType, Map.of())
-        .containsKey(aspectName);
+    return NORMALIZED_RESTRICTED_ASPECT_PRIVILEGES
+        .getOrDefault(entityType.toLowerCase(Locale.ROOT), Map.of())
+        .containsKey(aspectName.toLowerCase(Locale.ROOT));
+  }
+
+  /**
+   * Whether the given entity type carries any restricted aspects at all. Matched
+   * case-insensitively.
+   */
+  public static boolean hasRestrictedAspects(@Nonnull final String entityType) {
+    return NORMALIZED_RESTRICTED_ASPECT_PRIVILEGES.containsKey(entityType.toLowerCase(Locale.ROOT));
   }
 
   /**
@@ -357,27 +391,6 @@ public class AuthUtil {
   }
 
   /**
-   * Checks the aspect-specific privilege restriction (if any) for an entity type (not scoped to a
-   * specific urn resource). Used by batch APIs that share a single aspect projection across many
-   * urns of the same entity type, where per-urn resource-scoped checks aren't practical.
-   */
-  public static boolean isAPIAuthorizedAspectForEntityType(
-      @Nonnull final AuthorizationSession session,
-      @Nonnull final ApiOperation apiOperation,
-      @Nonnull final String entityType,
-      @Nonnull final String aspectName) {
-    if (!isRestrictedAspect(entityType, aspectName)) {
-      return true;
-    }
-    final Disjunctive<Conjunctive<PoliciesConfig.Privilege>> restrictedPrivileges =
-        lookupRestrictedAspectPrivilege(entityType, aspectName, apiOperation);
-    if (restrictedPrivileges == null) {
-      return false;
-    }
-    return isAPIAuthorized(session, restrictedPrivileges, new EntitySpec(entityType, ""));
-  }
-
-  /**
    * Combined entity-level + aspect-level authorization check for a single urn and a single,
    * explicitly named aspect. Use this for OpenAPI/Rest.li endpoints that get, create, patch, or
    * delete one named aspect (e.g. `GET /openapi/v3/entity/dataset/{urn}/upstreamLineage`).
@@ -397,6 +410,11 @@ public class AuthUtil {
    * Intended for endpoints that project/return multiple aspects at once (e.g. "get entity" with no
    * explicit aspect list, or search/scroll responses that embed aspects) so that restricted aspects
    * are silently excluded from the response rather than failing the whole request.
+   *
+   * <p><b>Callers must handle an empty result explicitly.</b> Several {@code EntityService} read
+   * methods interpret an empty aspect-name set as "all aspects", so passing an empty projection
+   * straight through would return <i>more</i> than was asked for -- including the very aspects that
+   * were just filtered out. Use {@link #isProjectionDenied} to detect that case.
    */
   public static Set<String> filterAuthorizedAspects(
       @Nonnull final AuthorizationSession session,
@@ -416,13 +434,16 @@ public class AuthUtil {
    * is excluded from the result. When the entity type carries no restricted aspects at all, the
    * requested set is returned unchanged (including empty, to preserve "all aspects" semantics
    * downstream).
+   *
+   * <p>As with {@link #filterAuthorizedAspects}, an empty result for a non-empty request means
+   * "nothing may be returned", not "return everything" -- see {@link #isProjectionDenied}.
    */
   public static Set<String> filterAuthorizedProjectedAspects(
       @Nonnull final AuthorizationSession session,
       @Nonnull final EntityRegistry entityRegistry,
       @Nonnull final Urn urn,
       @Nullable final Collection<String> requestedAspectNames) {
-    if (!PoliciesConfig.RESTRICTED_ASPECT_PRIVILEGES.containsKey(urn.getEntityType())) {
+    if (!hasRestrictedAspects(urn.getEntityType())) {
       return requestedAspectNames == null
           ? Set.of()
           : new java.util.HashSet<>(requestedAspectNames);
@@ -435,6 +456,26 @@ public class AuthUtil {
                 .collect(Collectors.toSet())
             : requestedAspectNames;
     return filterAuthorizedAspects(session, READ, urn, effectiveRequested);
+  }
+
+  /**
+   * Whether an authorized aspect projection has collapsed to "nothing may be returned".
+   *
+   * <p>{@code EntityService} read methods treat an empty aspect-name set as "fetch every aspect",
+   * so a non-empty request whose authorized projection came back empty must never be forwarded to
+   * the service -- doing so would return the whole entity, restricted aspects included. Callers
+   * should respond with a 403 (or an empty payload) instead.
+   *
+   * @param requestedAspectNames what the caller asked for (empty/null = "all aspects")
+   * @param authorizedAspectNames the result of {@link #filterAuthorizedAspects} / {@link
+   *     #filterAuthorizedProjectedAspects}
+   */
+  public static boolean isProjectionDenied(
+      @Nullable final Collection<String> requestedAspectNames,
+      @Nonnull final Collection<String> authorizedAspectNames) {
+    return requestedAspectNames != null
+        && !requestedAspectNames.isEmpty()
+        && authorizedAspectNames.isEmpty();
   }
 
   public static boolean isAPIAuthorizedEntityType(

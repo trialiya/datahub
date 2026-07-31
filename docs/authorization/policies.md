@@ -243,6 +243,7 @@ These privileges are to view & modify any entity within DataHub.
 | Edit Deprecation                    | Allow actor to edit the Deprecation status of an entity.                                   |
 | Edit Incidents                      | Allow actor to create and remove incidents for an entity.                                  |
 | Edit Lineage                        | Allow actor to add and remove lineage edges for this entity.                               |
+| View Lineage[^1]                    | Allow actor to read this entity's raw lineage aspect(s) through the entity APIs.           |
 | Edit Properties                     | Allow actor to edit the properties for an entity.                                          |
 | Edit Owners                         | Allow actor to add and remove owners of an entity.                                         |
 | Get Timeseries Aspect API[^1]       | Allow actor to use the GET Timeseries Aspect API.                                          |

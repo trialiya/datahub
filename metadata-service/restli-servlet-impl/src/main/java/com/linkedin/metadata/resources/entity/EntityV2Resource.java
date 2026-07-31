@@ -93,6 +93,12 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
                   : new HashSet<>(Arrays.asList(aspectNames));
           final Set<String> projectedAspects =
               AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspects);
+          if (AuthUtil.isProjectionDenied(requestedAspects, projectedAspects)) {
+            // An empty projection would be read as "all aspects" by the entity service.
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + requestedAspects + " for " + urn);
+          }
           try {
             return _entityService.getEntityV2(opContext, entityName, urn, projectedAspects, alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect);
           } catch (Exception e) {
@@ -151,6 +157,13 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
                           urn ->
                               AuthUtil.filterAuthorizedAspects(
                                   opContext, READ, urn, requestedAspects)));
+          if (urnsByProjection.keySet().stream()
+              .anyMatch(projection -> AuthUtil.isProjectionDenied(requestedAspects, projection))) {
+            // An empty projection would be read as "all aspects" by the entity service.
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + requestedAspects + " for: " + urnStrs);
+          }
           try {
             Map<Urn, EntityResponse> result = new java.util.HashMap<>();
             for (Map.Entry<Set<String>, List<Urn>> entry : urnsByProjection.entrySet()) {

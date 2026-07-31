@@ -25,6 +25,7 @@ import com.linkedin.metadata.authorization.ApiOperation;
 import com.linkedin.metadata.authorization.Conjunctive;
 import com.linkedin.util.Pair;
 import io.datahubproject.test.metadata.context.TestAuthSession;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -300,6 +301,68 @@ public class AuthUtilTest {
             Set.of("datasetProperties", Constants.UPSTREAM_LINEAGE_ASPECT_NAME)),
         Set.of("datasetProperties", Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
         "Expected upstreamLineage retained in READ projection for User C");
+  }
+
+  @Test
+  public void testRestrictedAspectNameIsCaseInsensitive() {
+    // The OpenAPI/Rest.li layers resolve aspect names case-insensitively, so the restriction must
+    // match the same way -- otherwise `upstreamlineage` is a free bypass.
+    Authorizer mockAuthorizer =
+        mockAuthorizer(
+            Map.of(
+                TEST_AUTH_B.getActor().toUrnStr(), Map.of("EDIT_ENTITY", Set.of(TEST_ENTITY_1))));
+    AuthorizationSession sessionB = TestAuthSession.from(TEST_AUTH_B, mockAuthorizer);
+
+    for (String aspectName : List.of("upstreamlineage", "UPSTREAMLINEAGE", "UpStreamLineage")) {
+      assertTrue(
+          AuthUtil.isRestrictedAspect(Constants.DATASET_ENTITY_NAME, aspectName),
+          "Expected " + aspectName + " to be recognized as restricted");
+      assertFalse(
+          AuthUtil.isAPIAuthorizedAspect(sessionB, ApiOperation.READ, TEST_ENTITY_1, aspectName),
+          "Expected " + aspectName + " read denied without VIEW_LINEAGE_PRIVILEGE");
+    }
+
+    // Entity type casing is normalized too.
+    assertTrue(
+        AuthUtil.isRestrictedAspect("DATASET", Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected entity type matching to be case-insensitive");
+    assertFalse(
+        AuthUtil.isRestrictedAspect(Constants.DATASET_ENTITY_NAME, "datasetProperties"),
+        "Expected unrestricted aspects to stay unrestricted");
+    assertFalse(
+        AuthUtil.hasRestrictedAspects(Constants.CORP_USER_ENTITY_NAME),
+        "Expected entity types without restricted aspects to report none");
+  }
+
+  @Test
+  public void testProjectionDeniedGuard() {
+    // An empty projection for a non-empty request must be treated as "deny", never handed to the
+    // entity service (which reads an empty aspect set as "every aspect").
+    assertTrue(
+        AuthUtil.isProjectionDenied(
+            Set.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME), Collections.emptySet()),
+        "Expected a fully-filtered explicit request to be denied");
+    assertFalse(
+        AuthUtil.isProjectionDenied(
+            Set.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME, "datasetProperties"),
+            Set.of("datasetProperties")),
+        "Expected a partially-filtered request to be allowed");
+    assertFalse(
+        AuthUtil.isProjectionDenied(Collections.emptySet(), Collections.emptySet()),
+        "Expected an empty request ('all aspects') to pass through untouched");
+    assertFalse(
+        AuthUtil.isProjectionDenied(null, Collections.emptySet()),
+        "Expected a null request ('all aspects') to pass through untouched");
+  }
+
+  @Test
+  public void testChangeTypeToAspectApiOperation() {
+    assertEquals(AuthUtil.toAspectApiOperation(ChangeType.CREATE_ENTITY), ApiOperation.CREATE);
+    assertEquals(AuthUtil.toAspectApiOperation(ChangeType.DELETE), ApiOperation.DELETE);
+    assertEquals(AuthUtil.toAspectApiOperation(ChangeType.UPSERT), ApiOperation.UPDATE);
+    assertEquals(AuthUtil.toAspectApiOperation(ChangeType.PATCH), ApiOperation.UPDATE);
+    assertEquals(AuthUtil.toAspectApiOperation(ChangeType.CREATE), ApiOperation.UPDATE);
+    assertEquals(AuthUtil.toAspectApiOperation(ChangeType.RESTATE), ApiOperation.UPDATE);
   }
 
   private Authorizer mockAuthorizer(Map<String, Map<String, Set<Urn>>> allowActorPrivUrn) {
