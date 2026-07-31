@@ -221,11 +221,13 @@ public class AuthUtilTest {
 
   @Test
   public void testRestrictedAspectPrivileges() {
-    // User A: EDIT_ENTITY + EDIT_LINEAGE, but NOT VIEW_LINEAGE -- can write upstreamLineage but
-    // cannot read it (write privileges intentionally do not imply read for restricted aspects).
-    // User B: only EDIT_ENTITY -- can write upstreamLineage (EDIT_ENTITY is a generic aspect-write
-    // privilege) but cannot read it.
-    // User C: only VIEW_LINEAGE -- can read upstreamLineage but cannot write it.
+    // dataset's upstreamLineage privileges are configured to mirror ApiGroup.LINEAGE: its READ set
+    // includes EDIT_ENTITY_PRIVILEGE and EDIT_LINEAGE_PRIVILEGE (the same privileges that satisfy
+    // write), plus VIEW_LINEAGE_PRIVILEGE as the dedicated, narrowest read-only grant.
+    // User A: EDIT_ENTITY + EDIT_LINEAGE -- can both read and write upstreamLineage.
+    // User B: only EDIT_ENTITY -- can also do both (EDIT_ENTITY alone is enough for either).
+    // User C: only VIEW_LINEAGE -- can read but not write (the write sets don't include it).
+    // User D: no privileges at all -- denied both.
     Authorizer mockAuthorizer =
         mockAuthorizer(
             Map.of(
@@ -239,17 +241,18 @@ public class AuthUtilTest {
     AuthorizationSession sessionA = TestAuthSession.from(TEST_AUTH_A, mockAuthorizer);
     AuthorizationSession sessionB = TestAuthSession.from(TEST_AUTH_B, mockAuthorizer);
     AuthorizationSession sessionC = TestAuthSession.from(TEST_AUTH_C, mockAuthorizer);
+    AuthorizationSession sessionD = TestAuthSession.from(TEST_AUTH_D, mockAuthorizer);
 
-    // User A: write allowed (EDIT_LINEAGE), read denied (no VIEW_LINEAGE).
+    // User A: both write and read allowed.
     assertTrue(
         AuthUtil.isAPIAuthorizedAspect(
             sessionA, ApiOperation.UPDATE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
         "Expected upstreamLineage write allowed given EDIT_LINEAGE_PRIVILEGE");
-    assertFalse(
+    assertTrue(
         AuthUtil.isAPIAuthorizedAspect(
             sessionA, ApiOperation.READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
-        "Expected upstreamLineage read denied without VIEW_LINEAGE_PRIVILEGE, even with EDIT_LINEAGE_PRIVILEGE");
-    assertFalse(
+        "Expected upstreamLineage read allowed: EDIT_ENTITY/EDIT_LINEAGE are part of its READ set too");
+    assertTrue(
         AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
             sessionA, ApiOperation.READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME));
     assertTrue(
@@ -257,21 +260,22 @@ public class AuthUtilTest {
             sessionA, ApiOperation.UPDATE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
         "Expected upstreamLineage write allowed end-to-end for User A");
 
-    // User B: write allowed via generic EDIT_ENTITY_PRIVILEGE, read still denied.
+    // User B: write allowed via generic EDIT_ENTITY_PRIVILEGE; read allowed for the same reason.
     assertTrue(
         AuthUtil.isAPIAuthorizedAspect(
             sessionB, ApiOperation.UPDATE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
         "Expected upstreamLineage write allowed given EDIT_ENTITY_PRIVILEGE alone");
-    assertFalse(
+    assertTrue(
         AuthUtil.isAPIAuthorizedAspect(
             sessionB, ApiOperation.READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
-        "Expected upstreamLineage read denied without VIEW_LINEAGE_PRIVILEGE");
-    assertFalse(
+        "Expected upstreamLineage read allowed given EDIT_ENTITY_PRIVILEGE alone");
+    assertTrue(
         AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
             sessionB, ApiOperation.READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
-        "Expected combined entity+aspect check to deny upstreamLineage read without VIEW_LINEAGE_PRIVILEGE");
+        "Expected combined entity+aspect check to allow upstreamLineage read given EDIT_ENTITY_PRIVILEGE");
 
-    // User C: read allowed via VIEW_LINEAGE, write denied (no EDIT_LINEAGE/EDIT_ENTITY).
+    // User C: read allowed via the dedicated VIEW_LINEAGE_PRIVILEGE, write denied (no
+    // EDIT_LINEAGE/EDIT_ENTITY).
     assertTrue(
         AuthUtil.isAPIAuthorizedAspect(
             sessionC, ApiOperation.READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
@@ -281,21 +285,32 @@ public class AuthUtilTest {
             sessionC, ApiOperation.UPDATE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
         "Expected upstreamLineage write denied given only VIEW_LINEAGE_PRIVILEGE");
 
-    // Unrestricted aspects are unaffected by the lack of VIEW_LINEAGE_PRIVILEGE.
+    // User D: no privileges at all -- denied both.
+    assertFalse(
+        AuthUtil.isAPIAuthorizedAspect(
+            sessionD, ApiOperation.READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected upstreamLineage read denied with no relevant privilege");
+    assertFalse(
+        AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
+            sessionD, ApiOperation.READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME));
+
+    // Unrestricted aspects are unaffected by the aspect-specific restriction (governed by the
+    // entity-level check instead, which isAPIAuthorizedAspect doesn't apply here).
     assertTrue(
         AuthUtil.isAPIAuthorizedAspect(
-            sessionB, ApiOperation.READ, TEST_ENTITY_1, "datasetProperties"),
-        "Expected unrestricted aspects to be unaffected");
+            sessionD, ApiOperation.READ, TEST_ENTITY_1, "datasetProperties"),
+        "Expected unrestricted aspects to be unaffected by the aspect-specific restriction");
 
-    // filterAuthorizedAspects (READ) should silently drop upstreamLineage for User B.
+    // filterAuthorizedAspects (READ) should silently drop upstreamLineage for a caller with no
+    // relevant privilege.
     assertEquals(
         AuthUtil.filterAuthorizedAspects(
-            sessionB,
+            sessionD,
             ApiOperation.READ,
             TEST_ENTITY_1,
             Set.of("datasetProperties", Constants.UPSTREAM_LINEAGE_ASPECT_NAME)),
         Set.of("datasetProperties"),
-        "Expected upstreamLineage filtered out of READ projection for User B");
+        "Expected upstreamLineage filtered out of READ projection for a caller with no lineage-read privilege");
 
     // But filterAuthorizedAspects (READ) for User C keeps upstreamLineage since VIEW_LINEAGE grants
     // read.
@@ -347,11 +362,14 @@ public class AuthUtilTest {
             sessionC, READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
         "Expected VIEW_LINEAGE_PRIVILEGE alone to allow reading upstreamLineage");
 
-    // The override does not leak across operations...
-    assertFalse(
+    // The override does not leak in the other direction: VIEW_LINEAGE_PRIVILEGE (a read-only
+    // grant) still does not satisfy any write operation. EDIT_LINEAGE_PRIVILEGE, on the other hand,
+    // is configured as part of upstreamLineage's READ set too (mirroring ApiGroup.LINEAGE), so it
+    // does grant read -- see testRestrictedAspectPrivileges for that behavior.
+    assertTrue(
         AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
             sessionD, READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
-        "Expected EDIT_LINEAGE_PRIVILEGE not to grant reading upstreamLineage");
+        "Expected EDIT_LINEAGE_PRIVILEGE to also grant reading upstreamLineage");
     assertFalse(
         AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
             sessionC, ApiOperation.UPDATE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
@@ -373,34 +391,27 @@ public class AuthUtilTest {
   @Test
   public void testRestrictedAspectManageIsConjunctionOfReadUpdateAndDelete() {
     // MANAGE is not a key in RESTRICTED_ASPECT_PRIVILEGES; it is derived as READ && UPDATE &&
-    // DELETE. Unlike the entity-level maps (UPDATE && DELETE), READ is part of the conjunction
-    // because for restricted aspects write deliberately does not imply read -- managing an aspect
-    // one is not allowed to see would otherwise be possible.
+    // DELETE. For dataset's upstreamLineage, EDIT_LINEAGE_PRIVILEGE is configured as part of both
+    // its READ and its write sets (mirroring ApiGroup.LINEAGE -- see that map's Javadoc), so
+    // holding
+    // EDIT_LINEAGE_PRIVILEGE alone now satisfies all three halves and grants MANAGE.
+    // VIEW_LINEAGE_PRIVILEGE, being read-only, still doesn't cover UPDATE/DELETE and so still fails
+    // MANAGE -- the conjunction keeps working, it's just that this aspect's current READ
+    // configuration no longer makes it a distinguishing factor against its own write privilege.
     Authorizer mockAuthorizer =
         mockAuthorizer(
             Map.of(
-                TEST_AUTH_D.getActor().toUrnStr(),
-                    Map.of(
-                        "EDIT_LINEAGE", Set.of(TEST_ENTITY_1),
-                        "VIEW_LINEAGE", Set.of(TEST_ENTITY_1)),
-                TEST_AUTH_B.getActor().toUrnStr(), Map.of("EDIT_LINEAGE", Set.of(TEST_ENTITY_1)),
+                TEST_AUTH_D.getActor().toUrnStr(), Map.of("EDIT_LINEAGE", Set.of(TEST_ENTITY_1)),
                 TEST_AUTH_C.getActor().toUrnStr(), Map.of("VIEW_LINEAGE", Set.of(TEST_ENTITY_1))));
 
     AuthorizationSession sessionD = TestAuthSession.from(TEST_AUTH_D, mockAuthorizer);
-    AuthorizationSession sessionB = TestAuthSession.from(TEST_AUTH_B, mockAuthorizer);
     AuthorizationSession sessionC = TestAuthSession.from(TEST_AUTH_C, mockAuthorizer);
 
-    // EDIT_LINEAGE covers UPDATE and DELETE, VIEW_LINEAGE covers READ -- all three halves held.
+    // EDIT_LINEAGE alone covers READ, UPDATE, and DELETE for upstreamLineage.
     assertTrue(
         AuthUtil.isAPIAuthorizedAspect(
             sessionD, ApiOperation.MANAGE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
-        "Expected EDIT_LINEAGE + VIEW_LINEAGE to satisfy MANAGE of upstreamLineage");
-
-    // Write-only: UPDATE and DELETE are covered but READ is not.
-    assertFalse(
-        AuthUtil.isAPIAuthorizedAspect(
-            sessionB, ApiOperation.MANAGE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
-        "Expected EDIT_LINEAGE alone (no read grant) not to satisfy MANAGE of upstreamLineage");
+        "Expected EDIT_LINEAGE_PRIVILEGE alone to satisfy MANAGE of upstreamLineage");
 
     // Read-only: neither UPDATE nor DELETE is covered.
     assertFalse(
@@ -418,20 +429,21 @@ public class AuthUtilTest {
   @Test
   public void testUnauthorizedRequestedAspects() {
     // Read endpoints fail an explicitly named aspect the caller cannot read, but silently drop the
-    // same aspect from a wildcard projection -- otherwise VIEW_LINEAGE would become mandatory for
-    // every plain "get entity" call.
+    // same aspect from a wildcard projection -- otherwise a lineage-read privilege would become
+    // mandatory for every plain "get entity" call. User D holds no privileges at all, so it has no
+    // path to reading upstreamLineage (unlike, e.g., EDIT_ENTITY_PRIVILEGE, which is part of its
+    // READ set -- see testRestrictedAspectPrivileges).
     Authorizer mockAuthorizer =
         mockAuthorizer(
             Map.of(
-                TEST_AUTH_B.getActor().toUrnStr(), Map.of("EDIT_ENTITY", Set.of(TEST_ENTITY_1)),
                 TEST_AUTH_C.getActor().toUrnStr(), Map.of("VIEW_LINEAGE", Set.of(TEST_ENTITY_1))));
-    AuthorizationSession sessionB = TestAuthSession.from(TEST_AUTH_B, mockAuthorizer);
+    AuthorizationSession sessionD = TestAuthSession.from(TEST_AUTH_D, mockAuthorizer);
     AuthorizationSession sessionC = TestAuthSession.from(TEST_AUTH_C, mockAuthorizer);
 
     // Explicit ask for a restricted aspect the caller cannot read -> reported.
     assertEquals(
         AuthUtil.unauthorizedRequestedAspects(
-            sessionB,
+            sessionD,
             TEST_ENTITY_1,
             List.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME, "datasetProperties")),
         Set.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
@@ -439,11 +451,11 @@ public class AuthUtilTest {
 
     // Wildcard (null/empty) is not an explicit ask -> nothing reported, caller filters instead.
     assertEquals(
-        AuthUtil.unauthorizedRequestedAspects(sessionB, TEST_ENTITY_1, null),
+        AuthUtil.unauthorizedRequestedAspects(sessionD, TEST_ENTITY_1, null),
         Set.of(),
         "Expected a null projection to report nothing");
     assertEquals(
-        AuthUtil.unauthorizedRequestedAspects(sessionB, TEST_ENTITY_1, List.of()),
+        AuthUtil.unauthorizedRequestedAspects(sessionD, TEST_ENTITY_1, List.of()),
         Set.of(),
         "Expected an empty projection to report nothing");
 
@@ -474,20 +486,18 @@ public class AuthUtilTest {
   @Test
   public void testRestrictedAspectNameIsCaseInsensitive() {
     // The OpenAPI/Rest.li layers resolve aspect names case-insensitively, so the restriction must
-    // match the same way -- otherwise `upstreamlineage` is a free bypass.
-    Authorizer mockAuthorizer =
-        mockAuthorizer(
-            Map.of(
-                TEST_AUTH_B.getActor().toUrnStr(), Map.of("EDIT_ENTITY", Set.of(TEST_ENTITY_1))));
-    AuthorizationSession sessionB = TestAuthSession.from(TEST_AUTH_B, mockAuthorizer);
+    // match the same way -- otherwise `upstreamlineage` is a free bypass. User D holds no
+    // privileges at all, so it has no path to reading upstreamLineage.
+    Authorizer mockAuthorizer = mockAuthorizer(Map.of());
+    AuthorizationSession sessionD = TestAuthSession.from(TEST_AUTH_D, mockAuthorizer);
 
     for (String aspectName : List.of("upstreamlineage", "UPSTREAMLINEAGE", "UpStreamLineage")) {
       assertTrue(
           AuthUtil.isRestrictedAspect(Constants.DATASET_ENTITY_NAME, aspectName),
           "Expected " + aspectName + " to be recognized as restricted");
       assertFalse(
-          AuthUtil.isAPIAuthorizedAspect(sessionB, ApiOperation.READ, TEST_ENTITY_1, aspectName),
-          "Expected " + aspectName + " read denied without VIEW_LINEAGE_PRIVILEGE");
+          AuthUtil.isAPIAuthorizedAspect(sessionD, ApiOperation.READ, TEST_ENTITY_1, aspectName),
+          "Expected " + aspectName + " read denied with no relevant privilege");
     }
 
     // Entity type casing is normalized too.

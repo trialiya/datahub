@@ -159,8 +159,9 @@ public abstract class GenericEntitiesController<
   /**
    * Enforces aspect-specific privilege restrictions (see {@link
    * com.linkedin.metadata.authorization.PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES}, e.g.
-   * `dataset`'s `upstreamLineage` requiring VIEW_LINEAGE_PRIVILEGE to read) for a set of requested
-   * aspect names on a given urn.
+   * `dataset`'s `upstreamLineage`, whose read/write privileges mirror {@link
+   * com.linkedin.metadata.authorization.ApiGroup#LINEAGE}) for a set of requested aspect names on a
+   * given urn.
    *
    * <p>If {@code requestedAspectNames} is null/empty it is passed through untouched unless {@code
    * expandEmpty} is set: an empty aspect list only means "all aspects" when {@link

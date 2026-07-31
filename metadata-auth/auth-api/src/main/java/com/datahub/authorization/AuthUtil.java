@@ -341,9 +341,13 @@ public class AuthUtil {
    *
    * <p>MANAGE is derived as the conjunction of READ, UPDATE and DELETE. The entity-level maps
    * ({@link #lookupEntityAPIPrivilege}) derive it from UPDATE and DELETE alone because there an
-   * edit privilege already implies read; for restricted aspects that implication is deliberately
-   * broken (write does not grant read), so READ has to be conjoined explicitly -- managing an
-   * aspect one is not allowed to see would otherwise be possible.
+   * edit privilege already implies read; for a restricted aspect that implication is not assumed by
+   * this mechanism, so READ is conjoined explicitly -- managing an aspect one is not allowed to see
+   * would otherwise be possible. Whether that changes the actual set of privileges that satisfy
+   * MANAGE depends on how the aspect's READ set is configured in {@link
+   * PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES}: for `dataset`'s `upstreamLineage`, READ already
+   * includes the write privileges (see that map's Javadoc), so the conjunction is not currently a
+   * distinguishing factor for that particular aspect.
    */
   @Nullable
   private static Disjunctive<Conjunctive<PoliciesConfig.Privilege>> lookupRestrictedAspectPrivilege(
@@ -371,9 +375,10 @@ public class AuthUtil {
 
   /**
    * Whether the given (entityType, aspectName) pair carries additional privilege restrictions
-   * beyond the standard entity-level CRUD privileges, e.g. `dataset`'s `upstreamLineage` aspect
-   * requiring VIEW_LINEAGE_PRIVILEGE to read or EDIT_LINEAGE_PRIVILEGE/EDIT_ENTITY_PRIVILEGE to
-   * write. Entity type and aspect name are matched case-insensitively.
+   * beyond the standard entity-level CRUD privileges, e.g. `dataset`'s `upstreamLineage` aspect,
+   * whose privileges are configured in {@link PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES} to match
+   * {@link ApiGroup#LINEAGE} operation for operation (plus VIEW_LINEAGE_PRIVILEGE as the dedicated,
+   * narrowest read grant). Entity type and aspect name are matched case-insensitively.
    */
   public static boolean isRestrictedAspect(
       @Nonnull final String entityType, @Nonnull final String aspectName) {
@@ -397,9 +402,13 @@ public class AuthUtil {
    * (or use {@link #isAPIAuthorizedEntityUrnsWithAspect}, which picks the right check).
    *
    * <p>For a restricted aspect these privileges are the <i>complete</i> requirement -- see {@link
-   * PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES}. In particular READ is governed exclusively by the
-   * aspect's own read privilege(s) and is not implied by holding its write privilege(s), unlike the
-   * usual entity-level pattern where EDIT also grants READ.
+   * PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES}. READ is governed exclusively by the aspect's own
+   * configured read privilege(s), independent of its write privilege(s) -- the mechanism does not
+   * assume an EDIT_* privilege implies READ the way the usual entity-level pattern does. Whether
+   * that produces a distinct outcome from write access depends entirely on what is configured for a
+   * given aspect: `dataset`'s `upstreamLineage`, for instance, includes EDIT_ENTITY_PRIVILEGE and
+   * EDIT_LINEAGE_PRIVILEGE in both its read and write sets (mirroring {@link ApiGroup#LINEAGE}), so
+   * for that aspect holding either write privilege does also grant read.
    */
   public static boolean isAPIAuthorizedAspect(
       @Nonnull final AuthorizationSession session,

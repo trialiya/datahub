@@ -1135,11 +1135,22 @@ public class PoliciesConfig {
    * the aspect entry could never deny anything. Overriding instead means EDIT_LINEAGE_PRIVILEGE
    * alone can write `upstreamLineage`, and EDIT_ENTITY_PRIVILEGE alone still can too.
    *
-   * <p>The same applies to READ, which intentionally departs from the usual pattern (where holding
-   * an EDIT_* privilege for a resource also implies READ access to it): reading a restricted aspect
-   * requires exactly its configured read privilege(s). Reading `upstreamLineage` therefore requires
-   * VIEW_LINEAGE_PRIVILEGE and nothing else -- neither implied by EDIT_ENTITY_PRIVILEGE nor by
-   * EDIT_LINEAGE_PRIVILEGE, and not additionally gated on the entity's own read privileges.
+   * <p><b>`dataset`'s `upstreamLineage` entry</b> is deliberately configured to match, operation
+   * for operation, the privileges already used by the {@link ApiGroup#LINEAGE} group for the
+   * graph-based lineage endpoints (lineage search/scroll, get/delete relationships, get lineage) --
+   * CREATE and UPDATE are identical to {@code API_PRIVILEGE_MAP.get(ApiGroup.LINEAGE)}, DELETE
+   * additionally accepts DELETE_ENTITY_PRIVILEGE the same way, and READ is that same set plus
+   * VIEW_LINEAGE_PRIVILEGE, which remains the dedicated, narrowest grant for reading just this
+   * aspect. This is a deliberate, independent copy -- not a shared reference to {@link
+   * #API_PRIVILEGE_MAP} -- specifically so this entry can be tightened or loosened by editing only
+   * this map, without touching the graph-lineage endpoints or {@link
+   * com.datahub.authorization.AuthUtil}. One consequence worth calling out: because
+   * EDIT_ENTITY_PRIVILEGE and EDIT_LINEAGE_PRIVILEGE are now part of READ too, holding either of
+   * them is sufficient for MANAGE (which is derived elsewhere as READ &amp;&amp; UPDATE &amp;&amp;
+   * DELETE) -- the "write does not imply read" split that motivated requiring READ in that
+   * conjunction no longer produces a distinct outcome for this particular aspect, though the
+   * conjunction itself remains valid, general-purpose plumbing for any aspect entry configured with
+   * an independent read privilege.
    *
    * <p>Note this override applies to the per-aspect authorization decision only. Endpoints that
    * operate on a whole entity (e.g. "delete entity", "get entity" with a wildcard projection) still
@@ -1159,7 +1170,15 @@ public class PoliciesConfig {
                       .put(
                           Constants.UPSTREAM_LINEAGE_ASPECT_NAME,
                           ImmutableMap.<ApiOperation, Disjunctive<Conjunctive<Privilege>>>builder()
-                              .put(ApiOperation.READ, Disjunctive.disjoint(VIEW_LINEAGE_PRIVILEGE))
+                              .put(
+                                  ApiOperation.READ,
+                                  Disjunctive.disjoint(
+                                      VIEW_LINEAGE_PRIVILEGE,
+                                      VIEW_ENTITY_PAGE_PRIVILEGE,
+                                      GET_ENTITY_PRIVILEGE,
+                                      EDIT_ENTITY_PRIVILEGE,
+                                      EDIT_LINEAGE_PRIVILEGE,
+                                      DELETE_ENTITY_PRIVILEGE))
                               .put(
                                   ApiOperation.CREATE,
                                   Disjunctive.disjoint(
@@ -1171,7 +1190,9 @@ public class PoliciesConfig {
                               .put(
                                   ApiOperation.DELETE,
                                   Disjunctive.disjoint(
-                                      EDIT_LINEAGE_PRIVILEGE, EDIT_ENTITY_PRIVILEGE))
+                                      EDIT_LINEAGE_PRIVILEGE,
+                                      EDIT_ENTITY_PRIVILEGE,
+                                      DELETE_ENTITY_PRIVILEGE))
                               .build())
                       .build())
               .build();
