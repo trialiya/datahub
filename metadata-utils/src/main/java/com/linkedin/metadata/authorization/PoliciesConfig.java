@@ -1127,23 +1127,24 @@ public class PoliciesConfig {
    * privileges. An operation missing from the innermost map is treated as DENY_ACCESS for that
    * operation.
    *
-   * <p>These requirements are applied <i>in addition to</i> (i.e. ANDed with) the entity-level
-   * privileges from {@link #API_PRIVILEGE_MAP} / {@link #API_ENTITY_PRIVILEGE_MAP} for the same
-   * operation, so a restricted aspect can only ever be harder to access than the entity it belongs
-   * to, never easier.
+   * <p>For a restricted aspect these privileges <i>replace</i> the entity-level privileges from
+   * {@link #API_PRIVILEGE_MAP} / {@link #API_ENTITY_PRIVILEGE_MAP} rather than being ANDed with
+   * them, so that an aspect-scoped privilege is sufficient on its own. Were they ANDed, listing
+   * EDIT_LINEAGE_PRIVILEGE here would be pointless for UPDATE -- the entity-level UPDATE check
+   * already demands EDIT_ENTITY_PRIVILEGE, so only EDIT_ENTITY holders would ever get through and
+   * the aspect entry could never deny anything. Overriding instead means EDIT_LINEAGE_PRIVILEGE
+   * alone can write `upstreamLineage`, and EDIT_ENTITY_PRIVILEGE alone still can too.
    *
-   * <p>Note the READ entry intentionally departs from the usual pattern (where holding an EDIT_*
-   * privilege for a resource also implies READ access to it): for a restricted aspect, READ is
-   * governed solely by its own configured read privilege(s), and is NOT implied by the write
-   * privilege(s) below. Reading `upstreamLineage` therefore requires VIEW_LINEAGE_PRIVILEGE even
-   * for a caller holding EDIT_ENTITY_PRIVILEGE on the dataset.
+   * <p>The same applies to READ, which intentionally departs from the usual pattern (where holding
+   * an EDIT_* privilege for a resource also implies READ access to it): reading a restricted aspect
+   * requires exactly its configured read privilege(s). Reading `upstreamLineage` therefore requires
+   * VIEW_LINEAGE_PRIVILEGE and nothing else -- neither implied by EDIT_ENTITY_PRIVILEGE nor by
+   * EDIT_LINEAGE_PRIVILEGE, and not additionally gated on the entity's own read privileges.
    *
-   * <p>Conversely, keeping EDIT_ENTITY_PRIVILEGE in the write disjunction means the write entries
-   * only narrow access for operations whose entity-level privilege set is broader -- e.g. CREATE
-   * (which also accepts CREATE_ENTITY_PRIVILEGE) and DELETE (DELETE_ENTITY_PRIVILEGE). UPDATE
-   * already requires EDIT_ENTITY_PRIVILEGE at the entity level, so its entry here is satisfied by
-   * anyone who passes the entity-level check; it is listed for completeness and so that tightening
-   * the write privileges later is a single-line change.
+   * <p>Note this override applies to the per-aspect authorization decision only. Endpoints that
+   * operate on a whole entity (e.g. "delete entity", "get entity" with a wildcard projection) still
+   * apply their own entity-level check first, and merely drop or reject the restricted aspects
+   * within an otherwise authorized request.
    */
   public static final Map<
           String, Map<String, Map<ApiOperation, Disjunctive<Conjunctive<Privilege>>>>>

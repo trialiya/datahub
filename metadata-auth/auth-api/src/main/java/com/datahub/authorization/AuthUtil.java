@@ -142,17 +142,23 @@ public class AuthUtil {
         .map(
             changeUrnMCP -> {
               final MetadataChangeProposal mcp = changeUrnMCP.getValue();
+              final Urn mcpUrn = changeUrnMCP.getKey().getSecond();
               int status =
                   authorizationResult.getOrDefault(
                       changeUrnMCP.getKey(), HttpStatus.SC_INTERNAL_SERVER_ERROR);
-              if (status == HttpStatus.SC_OK
+              if ((status == HttpStatus.SC_OK || status == HttpStatus.SC_FORBIDDEN)
                   && mcp.getAspectName() != null
-                  && !isAPIAuthorizedAspect(
-                      session,
-                      toAspectApiOperation(changeUrnMCP.getKey().getFirst()),
-                      changeUrnMCP.getKey().getSecond(),
-                      mcp.getAspectName())) {
-                status = HttpStatus.SC_FORBIDDEN;
+                  && isRestrictedAspect(mcpUrn.getEntityType(), mcp.getAspectName())) {
+                // A restricted aspect is governed by its own privileges instead of the entity-level
+                // ones, so the aspect check replaces the result above rather than narrowing it.
+                status =
+                    isAPIAuthorizedAspect(
+                            session,
+                            toAspectApiOperation(changeUrnMCP.getKey().getFirst()),
+                            mcpUrn,
+                            mcp.getAspectName())
+                        ? HttpStatus.SC_OK
+                        : HttpStatus.SC_FORBIDDEN;
               }
               return Pair.of(mcp, status);
             })
@@ -363,14 +369,15 @@ public class AuthUtil {
   }
 
   /**
-   * Checks only the aspect-specific privilege restriction (if any) for a single urn + aspect name +
-   * api operation. This does NOT perform the generic entity-level CRUD check -- callers should
-   * combine this with {@link #isAPIAuthorizedEntityUrns} (or use {@link
-   * #isAPIAuthorizedEntityUrnsWithAspect}) to also enforce the base entity-level privilege.
+   * Checks the aspect-specific privilege restriction (if any) for a single urn + aspect name + api
+   * operation. Returns true for any aspect that carries no restriction, so callers that also need
+   * the generic entity-level CRUD check must combine this with {@link #isAPIAuthorizedEntityUrns}
+   * (or use {@link #isAPIAuthorizedEntityUrnsWithAspect}, which picks the right check).
    *
-   * <p>Note that for restricted aspects, READ authorization is governed exclusively by the aspect's
-   * own configured read privilege(s) -- it is intentionally NOT implied by holding the aspect's
-   * write privilege(s) (unlike the usual entity-level pattern where EDIT also grants READ).
+   * <p>For a restricted aspect these privileges are the <i>complete</i> requirement -- see {@link
+   * PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES}. In particular READ is governed exclusively by the
+   * aspect's own read privilege(s) and is not implied by holding its write privilege(s), unlike the
+   * usual entity-level pattern where EDIT also grants READ.
    */
   public static boolean isAPIAuthorizedAspect(
       @Nonnull final AuthorizationSession session,
@@ -391,17 +398,25 @@ public class AuthUtil {
   }
 
   /**
-   * Combined entity-level + aspect-level authorization check for a single urn and a single,
-   * explicitly named aspect. Use this for OpenAPI/Rest.li endpoints that get, create, patch, or
-   * delete one named aspect (e.g. `GET /openapi/v3/entity/dataset/{urn}/upstreamLineage`).
+   * Authorization check for a single urn and a single, explicitly named aspect. Use this for
+   * OpenAPI/Rest.li endpoints that get, create, patch, or delete one named aspect (e.g. `GET
+   * /openapi/v3/entity/dataset/{urn}/upstreamLineage`).
+   *
+   * <p>A restricted aspect is governed by its own configured privileges <i>instead of</i> the
+   * entity-level ones, so that a privilege scoped to the aspect is sufficient on its own -- e.g.
+   * EDIT_LINEAGE_PRIVILEGE alone can write `upstreamLineage` without EDIT_ENTITY_PRIVILEGE, and
+   * VIEW_LINEAGE_PRIVILEGE alone can read it. Every other aspect falls back to the entity-level
+   * check, unchanged.
    */
   public static boolean isAPIAuthorizedEntityUrnsWithAspect(
       @Nonnull final AuthorizationSession session,
       @Nonnull final ApiOperation apiOperation,
       @Nonnull final Urn urn,
       @Nonnull final String aspectName) {
-    return isAPIAuthorizedEntityUrns(session, apiOperation, List.of(urn))
-        && isAPIAuthorizedAspect(session, apiOperation, urn, aspectName);
+    if (isRestrictedAspect(urn.getEntityType(), aspectName)) {
+      return isAPIAuthorizedAspect(session, apiOperation, urn, aspectName);
+    }
+    return isAPIAuthorizedEntityUrns(session, apiOperation, List.of(urn));
   }
 
   /**

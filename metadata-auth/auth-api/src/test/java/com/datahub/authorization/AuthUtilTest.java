@@ -56,6 +56,8 @@ public class AuthUtilTest {
       new Authentication(new Actor(ActorType.USER, "testB"), "");
   private static final Authentication TEST_AUTH_C =
       new Authentication(new Actor(ActorType.USER, "testC"), "");
+  private static final Authentication TEST_AUTH_D =
+      new Authentication(new Actor(ActorType.USER, "testD"), "");
   private static final Urn TEST_ENTITY_1 =
       UrnUtils.getUrn("urn:li:dataset:(urn:li:dataPlatform:s3,1,PROD)");
   private static final Urn TEST_ENTITY_2 =
@@ -250,6 +252,10 @@ public class AuthUtilTest {
     assertFalse(
         AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
             sessionA, ApiOperation.READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME));
+    assertTrue(
+        AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
+            sessionA, ApiOperation.UPDATE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected upstreamLineage write allowed end-to-end for User A");
 
     // User B: write allowed via generic EDIT_ENTITY_PRIVILEGE, read still denied.
     assertTrue(
@@ -301,6 +307,67 @@ public class AuthUtilTest {
             Set.of("datasetProperties", Constants.UPSTREAM_LINEAGE_ASPECT_NAME)),
         Set.of("datasetProperties", Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
         "Expected upstreamLineage retained in READ projection for User C");
+  }
+
+  @Test
+  public void testRestrictedAspectPrivilegesAreSufficientOnTheirOwn() {
+    // A restricted aspect is governed by its own privileges instead of the entity-level ones, so an
+    // aspect-scoped grant is enough by itself. Otherwise EDIT_LINEAGE would be dead weight for
+    // UPDATE: the entity-level UPDATE check already demands EDIT_ENTITY, so only EDIT_ENTITY
+    // holders would ever reach the aspect check and it could never deny anything.
+    // User D holds EDIT_LINEAGE only; User C (below) holds VIEW_LINEAGE only. Neither has any
+    // entity-level privilege on the dataset.
+    Authorizer mockAuthorizer =
+        mockAuthorizer(
+            Map.of(
+                TEST_AUTH_D.getActor().toUrnStr(), Map.of("EDIT_LINEAGE", Set.of(TEST_ENTITY_1)),
+                TEST_AUTH_C.getActor().toUrnStr(), Map.of("VIEW_LINEAGE", Set.of(TEST_ENTITY_1))));
+
+    AuthorizationSession sessionD = TestAuthSession.from(TEST_AUTH_D, mockAuthorizer);
+    AuthorizationSession sessionC = TestAuthSession.from(TEST_AUTH_C, mockAuthorizer);
+
+    // Sanity check: neither user passes the plain entity-level checks.
+    assertFalse(
+        AuthUtil.isAPIAuthorizedEntityUrns(sessionD, ApiOperation.UPDATE, List.of(TEST_ENTITY_1)),
+        "Expected User D to lack entity-level UPDATE (no EDIT_ENTITY)");
+    assertFalse(
+        AuthUtil.isAPIAuthorizedEntityUrns(sessionC, READ, List.of(TEST_ENTITY_1)),
+        "Expected User C to lack entity-level READ");
+
+    // ... yet each can operate on the restricted aspect via its own privilege.
+    for (ApiOperation writeOp :
+        List.of(ApiOperation.CREATE, ApiOperation.UPDATE, ApiOperation.DELETE)) {
+      assertTrue(
+          AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
+              sessionD, writeOp, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+          "Expected EDIT_LINEAGE_PRIVILEGE alone to allow " + writeOp + " of upstreamLineage");
+    }
+    assertTrue(
+        AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
+            sessionC, READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected VIEW_LINEAGE_PRIVILEGE alone to allow reading upstreamLineage");
+
+    // The override does not leak across operations...
+    assertFalse(
+        AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
+            sessionD, READ, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected EDIT_LINEAGE_PRIVILEGE not to grant reading upstreamLineage");
+    assertFalse(
+        AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
+            sessionC, ApiOperation.UPDATE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected VIEW_LINEAGE_PRIVILEGE not to grant writing upstreamLineage");
+
+    // ... nor across resources ...
+    assertFalse(
+        AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
+            sessionD, ApiOperation.UPDATE, TEST_ENTITY_2, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected the aspect grant to stay scoped to the resource it was granted on");
+
+    // ... nor to unrestricted aspects, which still require the entity-level privilege.
+    assertFalse(
+        AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
+            sessionD, ApiOperation.UPDATE, TEST_ENTITY_1, "datasetProperties"),
+        "Expected unrestricted aspects to keep requiring the entity-level privilege");
   }
 
   @Test
