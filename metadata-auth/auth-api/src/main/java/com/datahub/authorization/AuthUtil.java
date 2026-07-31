@@ -36,6 +36,7 @@ import com.linkedin.metadata.authorization.Disjunctive;
 import com.linkedin.metadata.authorization.PoliciesConfig;
 import com.linkedin.metadata.browse.BrowseResult;
 import com.linkedin.metadata.browse.BrowseResultEntity;
+import com.linkedin.metadata.models.AspectSpec;
 import com.linkedin.metadata.models.registry.EntityRegistry;
 import com.linkedin.metadata.query.AutoCompleteEntity;
 import com.linkedin.metadata.query.AutoCompleteResult;
@@ -46,6 +47,7 @@ import com.linkedin.metadata.utils.EntityKeyUtils;
 import com.linkedin.mxe.MetadataChangeProposal;
 import com.linkedin.util.Pair;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -524,15 +526,13 @@ public class AuthUtil {
       @Nonnull final Urn urn,
       @Nullable final Collection<String> requestedAspectNames) {
     if (!hasRestrictedAspects(urn.getEntityType())) {
-      return requestedAspectNames == null
-          ? Set.of()
-          : new java.util.HashSet<>(requestedAspectNames);
+      return requestedAspectNames == null ? Set.of() : new HashSet<>(requestedAspectNames);
     }
 
     final Collection<String> effectiveRequested =
         (requestedAspectNames == null || requestedAspectNames.isEmpty())
             ? entityRegistry.getEntitySpec(urn.getEntityType()).getAspectSpecs().stream()
-                .map(com.linkedin.metadata.models.AspectSpec::getName)
+                .map(AspectSpec::getName)
                 .collect(Collectors.toSet())
             : requestedAspectNames;
     return filterAuthorizedAspects(session, READ, urn, effectiveRequested);

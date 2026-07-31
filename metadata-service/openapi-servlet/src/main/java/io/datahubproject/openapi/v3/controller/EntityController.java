@@ -69,6 +69,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -116,7 +117,9 @@ public class EntityController
       @RequestBody @Nonnull String jsonEntityList)
       throws URISyntaxException, JsonProcessingException {
 
-    LinkedHashMap<Urn, Map<AspectSpec, Long>> requestMap = toEntityVersionRequest(jsonEntityList);
+    Set<Urn> wildcardUrns = new HashSet<>();
+    LinkedHashMap<Urn, Map<AspectSpec, Long>> requestMap =
+        toEntityVersionRequest(jsonEntityList, wildcardUrns);
 
     Authentication authentication = AuthenticationContext.getAuthentication();
     OperationContext opContext =
@@ -139,11 +142,13 @@ public class EntityController
           authentication.getActor().toUrnStr() + " is unauthorized to " + READ + "  entities.");
     }
 
-    // Every aspect here was named explicitly in the request body -- this endpoint has no wildcard
-    // form -- so a restricted aspect the caller cannot read fails the request rather than being
-    // dropped from the response. See AuthUtil#unauthorizedRequestedAspects.
+    // An aspect named explicitly in the request body fails the request if the caller cannot read
+    // it; an entity listed without aspects is a wildcard (toEntityVersionRequest pre-expands it to
+    // every aspect and records the urn in wildcardUrns), and wildcard entries silently drop
+    // restricted aspects instead. See AuthUtil#unauthorizedRequestedAspects.
     Set<String> unauthorizedAspects =
         requestMap.entrySet().stream()
+            .filter(entry -> !wildcardUrns.contains(entry.getKey()))
             .flatMap(
                 entry ->
                     AuthUtil.unauthorizedRequestedAspects(
@@ -162,6 +167,15 @@ public class EntityController
               + " aspects "
               + unauthorizedAspects);
     }
+    wildcardUrns.forEach(
+        urn ->
+            requestMap
+                .get(urn)
+                .keySet()
+                .removeIf(
+                    aspectSpec ->
+                        !AuthUtil.isAPIAuthorizedAspect(
+                            opContext, READ, urn, aspectSpec.getName())));
 
     return ResponseEntity.of(
         Optional.of(
@@ -573,8 +587,14 @@ public class EntityController
         expandEmpty);
   }
 
+  /**
+   * Parses the batch-get request body. An entity listed without any aspects is a wildcard ("all
+   * aspects"): it is expanded to every aspect of its entity type and its urn is added to {@code
+   * wildcardUrns}, so the caller can tell expanded entries apart from explicitly named ones.
+   */
   private LinkedHashMap<Urn, Map<AspectSpec, Long>> toEntityVersionRequest(
-      @Nonnull String entityArrayList) throws JsonProcessingException, InvalidUrnException {
+      @Nonnull String entityArrayList, @Nonnull Set<Urn> wildcardUrns)
+      throws JsonProcessingException, InvalidUrnException {
     JsonNode entities = objectMapper.readTree(entityArrayList);
 
     LinkedHashMap<Urn, Map<AspectSpec, Long>> items = new LinkedHashMap<>();
@@ -618,6 +638,7 @@ public class EntityController
 
         // handle no aspects specified, default latest version
         if (items.get(entityUrn).isEmpty()) {
+          wildcardUrns.add(entityUrn);
           for (AspectSpec aspectSpec :
               entityRegistry.getEntitySpec(entityUrn.getEntityType()).getAspectSpecs()) {
             items.get(entityUrn).put(aspectSpec, 0L);

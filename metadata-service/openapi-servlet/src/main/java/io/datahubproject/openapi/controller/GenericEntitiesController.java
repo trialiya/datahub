@@ -553,6 +553,14 @@ public abstract class GenericEntitiesController<
     EntitySpec entitySpec = entityRegistry.getEntitySpec(urn.getEntityType());
 
     if (clear) {
+      // Clearing every aspect is a whole-entity operation, like the full delete below (which
+      // already removes every aspect, restricted included), so it is gated by the entity-level
+      // DELETE privilege rather than per-aspect checks -- otherwise a caller allowed to delete the
+      // entire entity would be denied the strictly weaker clear.
+      if (!AuthUtil.isAPIAuthorizedEntityUrns(opContext, DELETE, List.of(urn))) {
+        throw new UnauthorizedException(
+            authentication.getActor().toUrnStr() + " is unauthorized to " + DELETE + " entities.");
+      }
       // remove all aspects, preserve entity by retaining key aspect
       aspects =
           entitySpec.getAspectSpecs().stream()
@@ -568,26 +576,28 @@ public abstract class GenericEntitiesController<
       }
       entityService.deleteUrn(opContext, urn);
     } else {
-      // Selective aspect delete: restricted aspects are governed by their own privileges, the rest
-      // by the entity-level DELETE privilege.
-      List<String> unauthorizedAspects =
-          aspects.stream()
-              .map(aspectName -> lookupAspectSpec(urn, aspectName).get().getName())
-              .filter(
-                  aspectName ->
-                      AuthUtil.isRestrictedAspect(urn.getEntityType(), aspectName)
-                          ? !AuthUtil.isAPIAuthorizedAspect(opContext, DELETE, urn, aspectName)
-                          : !AuthUtil.isAPIAuthorizedEntityUrns(opContext, DELETE, List.of(urn)))
-              .collect(Collectors.toList());
-      if (!unauthorizedAspects.isEmpty()) {
-        throw new UnauthorizedException(
-            authentication.getActor().toUrnStr()
-                + " is unauthorized to "
-                + DELETE
-                + " aspects "
-                + unauthorizedAspects
-                + " for "
-                + urn);
+      if (!clear) {
+        // Selective delete of explicitly named aspects: restricted aspects are governed by their
+        // own privileges, the rest by the entity-level DELETE privilege.
+        List<String> unauthorizedAspects =
+            aspects.stream()
+                .map(aspectName -> lookupAspectSpec(urn, aspectName).get().getName())
+                .filter(
+                    aspectName ->
+                        AuthUtil.isRestrictedAspect(urn.getEntityType(), aspectName)
+                            ? !AuthUtil.isAPIAuthorizedAspect(opContext, DELETE, urn, aspectName)
+                            : !AuthUtil.isAPIAuthorizedEntityUrns(opContext, DELETE, List.of(urn)))
+                .collect(Collectors.toList());
+        if (!unauthorizedAspects.isEmpty()) {
+          throw new UnauthorizedException(
+              authentication.getActor().toUrnStr()
+                  + " is unauthorized to "
+                  + DELETE
+                  + " aspects "
+                  + unauthorizedAspects
+                  + " for "
+                  + urn);
+        }
       }
       aspects.stream()
           .map(aspectName -> lookupAspectSpec(urn, aspectName).get().getName())
