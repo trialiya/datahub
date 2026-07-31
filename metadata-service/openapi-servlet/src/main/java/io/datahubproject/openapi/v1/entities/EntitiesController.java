@@ -151,7 +151,8 @@ public class EntitiesController {
         entityUrns.stream()
             .collect(
                 Collectors.groupingBy(
-                    urn -> AuthUtil.filterAuthorizedAspects(opContext, urn, requestedAspects)));
+                    urn ->
+                        AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspects)));
     Throwable exceptionally = null;
     try {
       Map<Urn, com.linkedin.entity.EntityResponse> entityResponses = new HashMap<>();

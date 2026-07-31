@@ -320,6 +320,12 @@ public class PoliciesConfig {
           "Edit Lineage",
           "The ability to add and remove lineage edges for this entity.");
 
+  public static final Privilege VIEW_LINEAGE_PRIVILEGE =
+      Privilege.of(
+          "VIEW_LINEAGE",
+          "View Lineage",
+          "The ability to view the lineage for this entity. Required to read the raw lineage aspect(s) for this entity, independent of any other view/edit privileges held for the entity.");
+
   public static final Privilege EDIT_ENTITY_EMBED_PRIVILEGE =
       Privilege.of(
           "EDIT_ENTITY_EMBED",
@@ -572,6 +578,7 @@ public class PoliciesConfig {
                       EDIT_DATASET_COL_GLOSSARY_TERMS_PRIVILEGE,
                       EDIT_ENTITY_ASSERTIONS_PRIVILEGE,
                       EDIT_LINEAGE_PRIVILEGE,
+                      VIEW_LINEAGE_PRIVILEGE,
                       EDIT_ENTITY_EMBED_PRIVILEGE,
                       EDIT_QUERIES_PRIVILEGE,
                       CREATE_ER_MODEL_RELATIONSHIP_PRIVILEGE,
@@ -1114,21 +1121,45 @@ public class PoliciesConfig {
               .build();
 
   /**
-   * Aspects that require an additional, aspect-specific privilege before they can be read, written,
-   * or deleted through the generic entity APIs (OpenAPI v1/v2/v3 and Rest.li), regardless of
-   * whatever entity-level privileges (e.g. EDIT_ENTITY_PRIVILEGE, VIEW_ENTITY_PAGE_PRIVILEGE) the
-   * caller otherwise holds for the entity. Keyed by entity type -> aspect name -> required
-   * privileges.
+   * Aspects that require additional, aspect-specific privileges -- on a per {@link ApiOperation}
+   * basis -- before they can be read, written, or deleted through the generic entity APIs (OpenAPI
+   * v1/v2/v3 and Rest.li), regardless of whatever entity-level privileges (e.g.
+   * EDIT_ENTITY_PRIVILEGE, VIEW_ENTITY_PAGE_PRIVILEGE) the caller otherwise holds for the entity.
+   * Keyed by entity type -> aspect name -> api operation -> required privileges. An operation
+   * missing from the innermost map is treated as DENY_ACCESS for that operation.
+   *
+   * <p>Note this intentionally departs from the usual pattern (where holding an EDIT_* privilege
+   * for a resource also implies READ access to it): for a restricted aspect, READ is governed
+   * solely by its own configured read privilege(s), and is NOT implied by the write privilege(s)
+   * below.
    */
-  public static final Map<String, Map<String, Disjunctive<Conjunctive<Privilege>>>>
+  public static final Map<
+          String, Map<String, Map<ApiOperation, Disjunctive<Conjunctive<Privilege>>>>>
       RESTRICTED_ASPECT_PRIVILEGES =
-          ImmutableMap.<String, Map<String, Disjunctive<Conjunctive<Privilege>>>>builder()
+          ImmutableMap
+              .<String, Map<String, Map<ApiOperation, Disjunctive<Conjunctive<Privilege>>>>>
+                  builder()
               .put(
                   Constants.DATASET_ENTITY_NAME,
-                  ImmutableMap.<String, Disjunctive<Conjunctive<Privilege>>>builder()
+                  ImmutableMap
+                      .<String, Map<ApiOperation, Disjunctive<Conjunctive<Privilege>>>>builder()
                       .put(
                           Constants.UPSTREAM_LINEAGE_ASPECT_NAME,
-                          Disjunctive.disjoint(EDIT_LINEAGE_PRIVILEGE))
+                          ImmutableMap.<ApiOperation, Disjunctive<Conjunctive<Privilege>>>builder()
+                              .put(ApiOperation.READ, Disjunctive.disjoint(VIEW_LINEAGE_PRIVILEGE))
+                              .put(
+                                  ApiOperation.CREATE,
+                                  Disjunctive.disjoint(
+                                      EDIT_LINEAGE_PRIVILEGE, EDIT_ENTITY_PRIVILEGE))
+                              .put(
+                                  ApiOperation.UPDATE,
+                                  Disjunctive.disjoint(
+                                      EDIT_LINEAGE_PRIVILEGE, EDIT_ENTITY_PRIVILEGE))
+                              .put(
+                                  ApiOperation.DELETE,
+                                  Disjunctive.disjoint(
+                                      EDIT_LINEAGE_PRIVILEGE, EDIT_ENTITY_PRIVILEGE))
+                              .build())
                       .build())
               .build();
 

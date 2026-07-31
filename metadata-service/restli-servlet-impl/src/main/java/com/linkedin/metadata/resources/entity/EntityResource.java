@@ -8,6 +8,7 @@ import static com.linkedin.metadata.authorization.ApiOperation.CREATE;
 import static com.linkedin.metadata.authorization.ApiOperation.DELETE;
 import static com.linkedin.metadata.authorization.ApiOperation.EXISTS;
 import static com.linkedin.metadata.authorization.ApiOperation.READ;
+import static com.linkedin.metadata.authorization.ApiOperation.UPDATE;
 import static com.linkedin.metadata.entity.validation.ValidationApiUtils.validateTrimOrThrow;
 import static com.linkedin.metadata.entity.validation.ValidationUtils.*;
 import static com.linkedin.metadata.resources.restli.RestliConstants.*;
@@ -295,7 +296,7 @@ public class EntityResource extends CollectionResourceTaskTemplate<String, Entit
     List<String> unauthorizedAspects =
         com.datahub.util.ModelUtils.getAspectsFromSnapshotUnion(entity.getValue()).stream()
             .map(aspect -> getAspectNameFromSchema(aspect.schema()))
-            .filter(aspectName -> !AuthUtil.isAPIAuthorizedAspect(opContext, urn, aspectName))
+            .filter(aspectName -> !AuthUtil.isAPIAuthorizedAspect(opContext, UPDATE, urn, aspectName))
             .collect(Collectors.toList());
     if (!unauthorizedAspects.isEmpty()) {
       throw new RestLiServiceException(

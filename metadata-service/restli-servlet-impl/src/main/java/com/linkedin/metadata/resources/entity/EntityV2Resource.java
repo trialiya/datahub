@@ -92,7 +92,7 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
                   ? opContext.getEntityAspectNames(entityName)
                   : new HashSet<>(Arrays.asList(aspectNames));
           final Set<String> projectedAspects =
-              AuthUtil.filterAuthorizedAspects(opContext, urn, requestedAspects);
+              AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspects);
           try {
             return _entityService.getEntityV2(opContext, entityName, urn, projectedAspects, alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect);
           } catch (Exception e) {
@@ -148,7 +148,9 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
               urns.stream()
                   .collect(
                       Collectors.groupingBy(
-                          urn -> AuthUtil.filterAuthorizedAspects(opContext, urn, requestedAspects)));
+                          urn ->
+                              AuthUtil.filterAuthorizedAspects(
+                                  opContext, READ, urn, requestedAspects)));
           try {
             Map<Urn, EntityResponse> result = new java.util.HashMap<>();
             for (Map.Entry<Set<String>, List<Urn>> entry : urnsByProjection.entrySet()) {

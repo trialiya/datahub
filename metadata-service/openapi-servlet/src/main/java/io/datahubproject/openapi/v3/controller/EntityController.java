@@ -149,7 +149,7 @@ public class EntityController
               .filter(
                   aspectEntry ->
                       AuthUtil.isAPIAuthorizedAspect(
-                          opContext, urn, aspectEntry.getKey().getName()))
+                          opContext, READ, urn, aspectEntry.getKey().getName()))
               .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
     }
 

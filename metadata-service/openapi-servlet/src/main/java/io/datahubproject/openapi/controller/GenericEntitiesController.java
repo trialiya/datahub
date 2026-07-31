@@ -180,7 +180,7 @@ public abstract class GenericEntitiesController<
       Set<String> restrictedUnauthorized =
           allAspectNames.stream()
               .filter(name -> AuthUtil.isRestrictedAspect(urn.getEntityType(), name))
-              .filter(name -> !AuthUtil.isAPIAuthorizedAspect(opContext, urn, name))
+              .filter(name -> !AuthUtil.isAPIAuthorizedAspect(opContext, READ, urn, name))
               .collect(Collectors.toSet());
       if (restrictedUnauthorized.isEmpty()) {
         return requestedAspectNames == null ? Set.of() : requestedAspectNames;
@@ -191,7 +191,7 @@ public abstract class GenericEntitiesController<
 
     Set<String> unauthorized =
         requestedAspectNames.stream()
-            .filter(name -> !AuthUtil.isAPIAuthorizedAspect(opContext, urn, name))
+            .filter(name -> !AuthUtil.isAPIAuthorizedAspect(opContext, READ, urn, name))
             .collect(Collectors.toSet());
     if (!unauthorized.isEmpty()) {
       throw new UnauthorizedException(
@@ -562,7 +562,8 @@ public abstract class GenericEntitiesController<
       List<String> unauthorizedAspects =
           aspects.stream()
               .map(aspectName -> lookupAspectSpec(urn, aspectName).get().getName())
-              .filter(aspectName -> !AuthUtil.isAPIAuthorizedAspect(opContext, urn, aspectName))
+              .filter(
+                  aspectName -> !AuthUtil.isAPIAuthorizedAspect(opContext, DELETE, urn, aspectName))
               .collect(Collectors.toList());
       if (!unauthorizedAspects.isEmpty()) {
         throw new UnauthorizedException(

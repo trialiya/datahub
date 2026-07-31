@@ -107,7 +107,7 @@ public class EntityVersionedV2Resource
                   .filter(
                       aspectName ->
                           com.datahub.authorization.AuthUtil.isAPIAuthorizedAspectForEntityType(
-                              opContext, entityType, aspectName))
+                              opContext, READ, entityType, aspectName))
                   .collect(Collectors.toSet());
           try {
             return _entityService.getEntitiesVersionedV2(opContext,
