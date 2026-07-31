@@ -16,6 +16,7 @@ import static com.linkedin.metadata.utils.CriterionUtils.validateAndConvert;
 import com.codahale.metrics.MetricRegistry;
 import com.datahub.authentication.Authentication;
 import com.datahub.authentication.AuthenticationContext;
+import com.datahub.authorization.AuthUtil;
 import com.datahub.plugins.auth.authorization.Authorizer;
 import com.google.common.annotations.VisibleForTesting;
 import com.linkedin.aspect.GetTimeseriesAspectValuesResponse;
@@ -153,10 +154,11 @@ public class AspectResource extends CollectionResourceTaskTemplate<String, Versi
                     systemOperationContext, RequestContext.builder().buildRestli(auth.getActor().toUrnStr(), getContext(),
                             "authorizerChain", urn.getEntityType()), _authorizer, auth, true);
 
-            if (!isAPIAuthorizedEntityUrns(
-                  opContext,
-                  READ,
-                  List.of(urn))) {
+            final boolean authorized =
+                aspectName != null
+                    ? AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(opContext, READ, urn, aspectName)
+                    : isAPIAuthorizedEntityUrns(opContext, READ, List.of(urn));
+            if (!authorized) {
             throw new RestLiServiceException(
                 HttpStatus.S_403_FORBIDDEN, "User is unauthorized to get aspect for " + urn);
           }

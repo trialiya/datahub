@@ -8,6 +8,7 @@ import static com.linkedin.metadata.authorization.ApiOperation.CREATE;
 import static com.linkedin.metadata.authorization.ApiOperation.DELETE;
 import static com.linkedin.metadata.authorization.ApiOperation.EXISTS;
 import static com.linkedin.metadata.authorization.ApiOperation.READ;
+import static com.linkedin.metadata.authorization.ApiOperation.UPDATE;
 import static com.linkedin.metadata.entity.validation.ValidationApiUtils.validateTrimOrThrow;
 import static com.linkedin.metadata.entity.validation.ValidationUtils.*;
 import static com.linkedin.metadata.resources.restli.RestliConstants.*;
@@ -209,10 +210,29 @@ public class EntityResource extends CollectionResourceTaskTemplate<String, Entit
 
     return RestliUtils.toTask(systemOperationContext,
         () -> {
-          final Set<String> projectedAspects =
+          // An explicitly named restricted aspect the caller cannot read fails the request; a
+          // wildcard projection (aspectNames == null) drops it silently instead.
+          final Set<String> unauthorizedAspects =
+              AuthUtil.unauthorizedRequestedAspects(
+                  opContext, urn, aspectNames == null ? null : Arrays.asList(aspectNames));
+          if (!unauthorizedAspects.isEmpty()) {
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + unauthorizedAspects + " for " + urn);
+          }
+          final Set<String> requestedAspects =
               aspectNames == null
                   ? Collections.emptySet()
                   : new HashSet<>(Arrays.asList(aspectNames));
+          final Set<String> projectedAspects =
+              AuthUtil.filterAuthorizedProjectedAspects(
+                  opContext, opContext.getEntityRegistry(), urn, requestedAspects);
+          if (AuthUtil.isProjectionDenied(requestedAspects, projectedAspects)) {
+            // An empty projection would be read as "all aspects" by the entity service.
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + requestedAspects + " for " + urn);
+          }
           final Entity entity = entityService.getEntity(opContext, urn, projectedAspects, true);
           if (entity == null) {
             throw RestliUtils.resourceNotFoundException(String.format("Did not find %s", urnStr));
@@ -250,17 +270,79 @@ public class EntityResource extends CollectionResourceTaskTemplate<String, Entit
 
     return RestliUtils.toTask(systemOperationContext,
         () -> {
-          final Set<String> projectedAspects =
+          // An explicitly named restricted aspect the caller cannot read fails the request; a
+          // wildcard projection (aspectNames == null) drops it silently instead.
+          final Set<String> unauthorizedAspects =
+              AuthUtil.unauthorizedRequestedAspects(
+                  opContext, urns, aspectNames == null ? null : Arrays.asList(aspectNames));
+          if (!unauthorizedAspects.isEmpty()) {
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + unauthorizedAspects + " for: " + urnStrs);
+          }
+          final Set<String> requestedAspects =
               aspectNames == null
                   ? Collections.emptySet()
                   : new HashSet<>(Arrays.asList(aspectNames));
-          return entityService.getEntities(opContext, urns, projectedAspects, true).entrySet().stream()
+          // Group urns by their authorized aspect projection (usually a single group, since
+          // most entity types have no restricted aspects and share the same projection).
+          Map<Set<String>, List<Urn>> urnsByProjection =
+              urns.stream()
+                  .collect(
+                      Collectors.groupingBy(
+                          urn ->
+                              AuthUtil.filterAuthorizedProjectedAspects(
+                                  opContext, opContext.getEntityRegistry(), urn, requestedAspects)));
+
+          if (urnsByProjection.keySet().stream()
+              .anyMatch(projection -> AuthUtil.isProjectionDenied(requestedAspects, projection))) {
+            // An empty projection would be read as "all aspects" by the entity service.
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + requestedAspects + " for: " + urnStrs);
+          }
+
+          return urnsByProjection.entrySet().stream()
+              .flatMap(
+                  entry ->
+                      entityService
+                          .getEntities(
+                              opContext, new HashSet<>(entry.getValue()), entry.getKey(), true)
+                          .entrySet()
+                          .stream())
               .collect(
                   Collectors.toMap(
                       entry -> entry.getKey().toString(),
                       entry -> new AnyRecord(entry.getValue().data())));
         },
         MetricRegistry.name(this.getClass(), "batchGet"));
+  }
+
+  /**
+   * Checks that the caller is authorized for every aspect present in the given entity snapshot
+   * (e.g. `dataset`'s `upstreamLineage` requires EDIT_LINEAGE_PRIVILEGE or EDIT_ENTITY_PRIVILEGE),
+   * throwing a 403 if not.
+   */
+  private void checkSnapshotAspectsAuthorizedOrThrow(
+      @Nonnull OperationContext opContext,
+      @Nonnull String actorUrnStr,
+      @Nonnull Urn urn,
+      @Nonnull Entity entity) {
+    List<String> unauthorizedAspects =
+        com.datahub.util.ModelUtils.getAspectsFromSnapshotUnion(entity.getValue()).stream()
+            .map(aspect -> getAspectNameFromSchema(aspect.schema()))
+            .filter(aspectName -> !AuthUtil.isAPIAuthorizedAspect(opContext, UPDATE, urn, aspectName))
+            .collect(Collectors.toList());
+    if (!unauthorizedAspects.isEmpty()) {
+      throw new RestLiServiceException(
+          HttpStatus.S_403_FORBIDDEN,
+          "User "
+              + actorUrnStr
+              + " is unauthorized to edit aspects "
+              + unauthorizedAspects
+              + " for "
+              + urn);
+    }
   }
 
   @Action(name = ACTION_INGEST)
@@ -284,6 +366,7 @@ public class EntityResource extends CollectionResourceTaskTemplate<String, Entit
       throw new RestLiServiceException(
           HttpStatus.S_403_FORBIDDEN, "User " + actorUrnStr + " is unauthorized to edit entity " + urn);
     }
+    checkSnapshotAspectsAuthorizedOrThrow(opContext, actorUrnStr, urn, entity);
 
     try {
       validateTrimOrThrow(entity);
@@ -329,6 +412,9 @@ public class EntityResource extends CollectionResourceTaskTemplate<String, Entit
             CREATE, urns)) {
       throw new RestLiServiceException(
           HttpStatus.S_403_FORBIDDEN, "User " + actorUrnStr +  " is unauthorized to edit entities.");
+    }
+    for (int i = 0; i < entities.length; i++) {
+      checkSnapshotAspectsAuthorizedOrThrow(opContext, actorUrnStr, urns.get(i), entities[i]);
     }
 
     for (Entity entity : entities) {

@@ -320,6 +320,12 @@ public class PoliciesConfig {
           "Edit Lineage",
           "The ability to add and remove lineage edges for this entity.");
 
+  public static final Privilege VIEW_LINEAGE_PRIVILEGE =
+      Privilege.of(
+          "VIEW_LINEAGE",
+          "View Lineage",
+          "The ability to view the lineage for this entity. Required to read the raw lineage aspect(s) for this entity, independent of any other view/edit privileges held for the entity.");
+
   public static final Privilege EDIT_ENTITY_EMBED_PRIVILEGE =
       Privilege.of(
           "EDIT_ENTITY_EMBED",
@@ -572,6 +578,7 @@ public class PoliciesConfig {
                       EDIT_DATASET_COL_GLOSSARY_TERMS_PRIVILEGE,
                       EDIT_ENTITY_ASSERTIONS_PRIVILEGE,
                       EDIT_LINEAGE_PRIVILEGE,
+                      VIEW_LINEAGE_PRIVILEGE,
                       EDIT_ENTITY_EMBED_PRIVILEGE,
                       EDIT_QUERIES_PRIVILEGE,
                       CREATE_ER_MODEL_RELATIONSHIP_PRIVILEGE,
@@ -1110,6 +1117,83 @@ public class PoliciesConfig {
                               DELETE_ENTITY_PRIVILEGE,
                               VIEW_ENTITY_PAGE_PRIVILEGE,
                               SEARCH_PRIVILEGE))
+                      .build())
+              .build();
+
+  /**
+   * Aspects that require additional, aspect-specific privileges -- on a per {@link ApiOperation}
+   * basis -- before they can be read, written, or deleted through the generic entity APIs (OpenAPI
+   * v1/v2/v3 and Rest.li). Keyed by entity type -> aspect name -> api operation -> required
+   * privileges. An operation missing from the innermost map is treated as DENY_ACCESS for that
+   * operation.
+   *
+   * <p>For a restricted aspect these privileges <i>replace</i> the entity-level privileges from
+   * {@link #API_PRIVILEGE_MAP} / {@link #API_ENTITY_PRIVILEGE_MAP} rather than being ANDed with
+   * them, so that an aspect-scoped privilege is sufficient on its own. Were they ANDed, listing
+   * EDIT_LINEAGE_PRIVILEGE here would be pointless for UPDATE -- the entity-level UPDATE check
+   * already demands EDIT_ENTITY_PRIVILEGE, so only EDIT_ENTITY holders would ever get through and
+   * the aspect entry could never deny anything. Overriding instead means EDIT_LINEAGE_PRIVILEGE
+   * alone can write `upstreamLineage`, and EDIT_ENTITY_PRIVILEGE alone still can too.
+   *
+   * <p><b>`dataset`'s `upstreamLineage` entry</b> is deliberately configured to match, operation
+   * for operation, the privileges already used by the {@link ApiGroup#LINEAGE} group for the
+   * graph-based lineage endpoints (lineage search/scroll, get/delete relationships, get lineage) --
+   * CREATE and UPDATE are identical to {@code API_PRIVILEGE_MAP.get(ApiGroup.LINEAGE)}, DELETE
+   * additionally accepts DELETE_ENTITY_PRIVILEGE the same way, and READ is that same set plus
+   * VIEW_LINEAGE_PRIVILEGE, which remains the dedicated, narrowest grant for reading just this
+   * aspect. This is a deliberate, independent copy -- not a shared reference to {@link
+   * #API_PRIVILEGE_MAP} -- specifically so this entry can be tightened or loosened by editing only
+   * this map, without touching the graph-lineage endpoints or {@link
+   * com.datahub.authorization.AuthUtil}. One consequence worth calling out: because
+   * EDIT_ENTITY_PRIVILEGE and EDIT_LINEAGE_PRIVILEGE are now part of READ too, holding either of
+   * them is sufficient for MANAGE (which is derived elsewhere as READ &amp;&amp; UPDATE &amp;&amp;
+   * DELETE) -- the "write does not imply read" split that motivated requiring READ in that
+   * conjunction no longer produces a distinct outcome for this particular aspect, though the
+   * conjunction itself remains valid, general-purpose plumbing for any aspect entry configured with
+   * an independent read privilege.
+   *
+   * <p>Note this override applies to the per-aspect authorization decision only. Endpoints that
+   * operate on a whole entity (e.g. "delete entity", "get entity" with a wildcard projection) still
+   * apply their own entity-level check first, and merely drop or reject the restricted aspects
+   * within an otherwise authorized request.
+   */
+  public static final Map<
+          String, Map<String, Map<ApiOperation, Disjunctive<Conjunctive<Privilege>>>>>
+      RESTRICTED_ASPECT_PRIVILEGES =
+          ImmutableMap
+              .<String, Map<String, Map<ApiOperation, Disjunctive<Conjunctive<Privilege>>>>>
+                  builder()
+              .put(
+                  Constants.DATASET_ENTITY_NAME,
+                  ImmutableMap
+                      .<String, Map<ApiOperation, Disjunctive<Conjunctive<Privilege>>>>builder()
+                      .put(
+                          Constants.UPSTREAM_LINEAGE_ASPECT_NAME,
+                          ImmutableMap.<ApiOperation, Disjunctive<Conjunctive<Privilege>>>builder()
+                              .put(
+                                  ApiOperation.READ,
+                                  Disjunctive.disjoint(
+                                      VIEW_LINEAGE_PRIVILEGE,
+                                      VIEW_ENTITY_PAGE_PRIVILEGE,
+                                      GET_ENTITY_PRIVILEGE,
+                                      EDIT_ENTITY_PRIVILEGE,
+                                      EDIT_LINEAGE_PRIVILEGE,
+                                      DELETE_ENTITY_PRIVILEGE))
+                              .put(
+                                  ApiOperation.CREATE,
+                                  Disjunctive.disjoint(
+                                      EDIT_LINEAGE_PRIVILEGE, EDIT_ENTITY_PRIVILEGE))
+                              .put(
+                                  ApiOperation.UPDATE,
+                                  Disjunctive.disjoint(
+                                      EDIT_LINEAGE_PRIVILEGE, EDIT_ENTITY_PRIVILEGE))
+                              .put(
+                                  ApiOperation.DELETE,
+                                  Disjunctive.disjoint(
+                                      EDIT_LINEAGE_PRIVILEGE,
+                                      EDIT_ENTITY_PRIVILEGE,
+                                      DELETE_ENTITY_PRIVILEGE))
+                              .build())
                       .build())
               .build();
 

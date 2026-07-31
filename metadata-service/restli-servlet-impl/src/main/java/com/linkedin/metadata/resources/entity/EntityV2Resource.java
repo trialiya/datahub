@@ -10,6 +10,7 @@ import static com.linkedin.metadata.utils.PegasusUtils.urnToEntityName;
 import com.codahale.metrics.MetricRegistry;
 import com.datahub.authentication.Authentication;
 import com.datahub.authentication.AuthenticationContext;
+import com.datahub.authorization.AuthUtil;
 import com.datahub.authorization.EntitySpec;
 import com.datahub.plugins.auth.authorization.Authorizer;
 import com.linkedin.common.urn.Urn;
@@ -86,10 +87,28 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
       return RestliUtils.toTask(systemOperationContext,
         () -> {
           final String entityName = urnToEntityName(urn);
-          final Set<String> projectedAspects =
+          // An explicitly named restricted aspect the caller cannot read fails the request; a
+          // wildcard projection (aspectNames == null) drops it silently instead.
+          final Set<String> unauthorizedAspects =
+              AuthUtil.unauthorizedRequestedAspects(
+                  opContext, urn, aspectNames == null ? null : Arrays.asList(aspectNames));
+          if (!unauthorizedAspects.isEmpty()) {
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + unauthorizedAspects + " for " + urn);
+          }
+          final Set<String> requestedAspects =
               aspectNames == null
                   ? opContext.getEntityAspectNames(entityName)
                   : new HashSet<>(Arrays.asList(aspectNames));
+          final Set<String> projectedAspects =
+              AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspects);
+          if (AuthUtil.isProjectionDenied(requestedAspects, projectedAspects)) {
+            // An empty projection would be read as "all aspects" by the entity service.
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + requestedAspects + " for " + urn);
+          }
           try {
             return _entityService.getEntityV2(opContext, entityName, urn, projectedAspects, alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect);
           } catch (Exception e) {
@@ -135,17 +154,53 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
     final String entityName = urnToEntityName(urns.iterator().next());
     return RestliUtils.toTask(systemOperationContext,
         () -> {
-          final Set<String> projectedAspects =
+          // An explicitly named restricted aspect the caller cannot read fails the request; a
+          // wildcard projection (aspectNames == null) drops it silently instead.
+          final Set<String> unauthorizedAspects =
+              AuthUtil.unauthorizedRequestedAspects(
+                  opContext, urns, aspectNames == null ? null : Arrays.asList(aspectNames));
+          if (!unauthorizedAspects.isEmpty()) {
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + unauthorizedAspects + " for: " + urnStrs);
+          }
+          final Set<String> requestedAspects =
               aspectNames == null
                   ? opContext.getEntityAspectNames(entityName)
                   : new HashSet<>(Arrays.asList(aspectNames));
+          // Group urns by their authorized aspect projection (usually a single group, since
+          // most entity types have no restricted aspects and share the same projection).
+          Map<Set<String>, List<Urn>> urnsByProjection =
+              urns.stream()
+                  .collect(
+                      Collectors.groupingBy(
+                          urn ->
+                              AuthUtil.filterAuthorizedAspects(
+                                  opContext, READ, urn, requestedAspects)));
+          if (urnsByProjection.keySet().stream()
+              .anyMatch(projection -> AuthUtil.isProjectionDenied(requestedAspects, projection))) {
+            // An empty projection would be read as "all aspects" by the entity service.
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + requestedAspects + " for: " + urnStrs);
+          }
           try {
-            return _entityService.getEntitiesV2(opContext, entityName, urns, projectedAspects, alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect);
+            Map<Urn, EntityResponse> result = new java.util.HashMap<>();
+            for (Map.Entry<Set<String>, List<Urn>> entry : urnsByProjection.entrySet()) {
+              result.putAll(
+                  _entityService.getEntitiesV2(
+                      opContext,
+                      entityName,
+                      new HashSet<>(entry.getValue()),
+                      entry.getKey(),
+                      alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect));
+            }
+            return result;
           } catch (Exception e) {
             throw new RuntimeException(
                 String.format(
                     "Failed to batch get entities with urns: %s, projectedAspects: %s",
-                    urns, projectedAspects),
+                    urns, requestedAspects),
                 e);
           }
         },

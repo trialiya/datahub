@@ -279,6 +279,17 @@ public class EntityApiDelegateImpl<I, O, S> {
             _authorizationChain,
             auth,
             true);
+
+    if (!AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(
+        opContext, com.linkedin.metadata.authorization.ApiOperation.DELETE, entityUrn, aspect)) {
+      throw new UnauthorizedException(
+          auth.getActor().toUrnStr()
+              + " is unauthorized to delete aspect "
+              + aspect
+              + " for "
+              + entityUrn);
+    }
+
     _entityService.deleteAspect(opContext, urn, aspect, Map.of(), false);
     _v1Controller.deleteEntities(request, new String[] {urn}, false, false);
     return new ResponseEntity<>(HttpStatus.OK);

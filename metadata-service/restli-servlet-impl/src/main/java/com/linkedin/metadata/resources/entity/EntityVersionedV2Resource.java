@@ -1,8 +1,11 @@
 package com.linkedin.metadata.resources.entity;
 
+import static com.datahub.authorization.AuthUtil.filterAuthorizedAspects;
 import static com.datahub.authorization.AuthUtil.isAPIAuthorized;
 import static com.datahub.authorization.AuthUtil.isAPIAuthorizedEntityUrns;
 import static com.datahub.authorization.AuthUtil.isAPIAuthorizedUrns;
+import static com.datahub.authorization.AuthUtil.isProjectionDenied;
+import static com.datahub.authorization.AuthUtil.unauthorizedRequestedAspects;
 import static com.linkedin.metadata.authorization.ApiGroup.ENTITY;
 import static com.linkedin.metadata.authorization.ApiOperation.READ;
 import static com.linkedin.metadata.resources.restli.RestliConstants.*;
@@ -32,6 +35,7 @@ import io.datahubproject.metadata.context.RequestContext;
 import io.opentelemetry.instrumentation.annotations.WithSpan;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -98,30 +102,71 @@ public class EntityVersionedV2Resource
     }
     return RestliUtils.toTask(systemOperationContext,
         () -> {
-          final Set<String> projectedAspects =
+          // An explicitly named restricted aspect the caller cannot read fails the request; a
+          // wildcard projection (aspectNames == null) drops it silently instead.
+          final Set<String> unauthorizedAspects =
+              unauthorizedRequestedAspects(
+                  opContext, urns, aspectNames == null ? null : Arrays.asList(aspectNames));
+          if (!unauthorizedAspects.isEmpty()) {
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + unauthorizedAspects + " for: "
+                    + versionedUrnStrs);
+          }
+
+          final Set<String> requestedAspects =
               aspectNames == null
                   ? opContext.getEntityAspectNames(entityType)
                   : new HashSet<>(Arrays.asList(aspectNames));
+          // Aspect restrictions are resource-scoped, so the projection has to be computed per urn
+          // rather than once for the entity type -- a resource-scoped policy would never match an
+          // entity-type-only check. Urns sharing a projection are fetched together.
+          Map<Set<String>, List<com.linkedin.common.urn.VersionedUrn>> versionedUrnsByProjection =
+              versionedUrnStrs.stream()
+                  .collect(
+                      Collectors.groupingBy(
+                          versionedUrn ->
+                              filterAuthorizedAspects(
+                                  opContext,
+                                  READ,
+                                  UrnUtils.getUrn(versionedUrn.getUrn()),
+                                  requestedAspects)));
+
+          if (versionedUrnsByProjection.keySet().stream()
+              .anyMatch(projection -> isProjectionDenied(requestedAspects, projection))) {
+            // An empty projection would be read as "all aspects" by the entity service.
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + requestedAspects + " for: "
+                    + versionedUrnStrs);
+          }
+
           try {
-            return _entityService.getEntitiesVersionedV2(opContext,
-                versionedUrnStrs.stream()
-                    .map(
-                        versionedUrnTyperef -> {
-                          VersionedUrn versionedUrn =
-                              new VersionedUrn()
-                                  .setUrn(UrnUtils.getUrn(versionedUrnTyperef.getUrn()));
-                          if (versionedUrnTyperef.getVersionStamp() != null) {
-                            versionedUrn.setVersionStamp(versionedUrnTyperef.getVersionStamp());
-                          }
-                          return versionedUrn;
-                        })
-                    .collect(Collectors.toSet()),
-                projectedAspects);
+            Map<Urn, EntityResponse> result = new HashMap<>();
+            for (Map.Entry<Set<String>, List<com.linkedin.common.urn.VersionedUrn>> entry :
+                versionedUrnsByProjection.entrySet()) {
+              result.putAll(
+                  _entityService.getEntitiesVersionedV2(opContext,
+                      entry.getValue().stream()
+                          .map(
+                              versionedUrnTyperef -> {
+                                VersionedUrn versionedUrn =
+                                    new VersionedUrn()
+                                        .setUrn(UrnUtils.getUrn(versionedUrnTyperef.getUrn()));
+                                if (versionedUrnTyperef.getVersionStamp() != null) {
+                                  versionedUrn.setVersionStamp(versionedUrnTyperef.getVersionStamp());
+                                }
+                                return versionedUrn;
+                              })
+                          .collect(Collectors.toSet()),
+                      entry.getKey()));
+            }
+            return result;
           } catch (Exception e) {
             throw new RuntimeException(
                 String.format(
-                    "Failed to batch get versioned entities: %s, projectedAspects: %s",
-                    versionedUrnStrs, projectedAspects),
+                    "Failed to batch get versioned entities: %s, requestedAspects: %s",
+                    versionedUrnStrs, requestedAspects),
                 e);
           }
         },
