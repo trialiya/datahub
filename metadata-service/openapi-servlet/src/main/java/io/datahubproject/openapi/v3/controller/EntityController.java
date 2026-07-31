@@ -76,6 +76,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -138,29 +139,34 @@ public class EntityController
           authentication.getActor().toUrnStr() + " is unauthorized to " + READ + "  entities.");
     }
 
-    // Exclude any aspects (e.g. restricted lineage aspects) the caller isn't individually
-    // authorized to access, regardless of the entity-level READ check above.
-    LinkedHashMap<Urn, Map<AspectSpec, Long>> authorizedRequestMap = new LinkedHashMap<>();
-    for (Map.Entry<Urn, Map<AspectSpec, Long>> entry : requestMap.entrySet()) {
-      Urn urn = entry.getKey();
-      authorizedRequestMap.put(
-          urn,
-          entry.getValue().entrySet().stream()
-              .filter(
-                  aspectEntry ->
-                      AuthUtil.isAPIAuthorizedAspect(
-                          opContext, READ, urn, aspectEntry.getKey().getName()))
-              .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)));
+    // Every aspect here was named explicitly in the request body -- this endpoint has no wildcard
+    // form -- so a restricted aspect the caller cannot read fails the request rather than being
+    // dropped from the response. See AuthUtil#unauthorizedRequestedAspects.
+    Set<String> unauthorizedAspects =
+        requestMap.entrySet().stream()
+            .flatMap(
+                entry ->
+                    AuthUtil.unauthorizedRequestedAspects(
+                        opContext,
+                        entry.getKey(),
+                        entry.getValue().keySet().stream()
+                            .map(AspectSpec::getName)
+                            .collect(Collectors.toSet()))
+                        .stream())
+            .collect(Collectors.toCollection(TreeSet::new));
+    if (!unauthorizedAspects.isEmpty()) {
+      throw new UnauthorizedException(
+          authentication.getActor().toUrnStr()
+              + " is unauthorized to "
+              + READ
+              + " aspects "
+              + unauthorizedAspects);
     }
 
     return ResponseEntity.of(
         Optional.of(
             buildEntityVersionedAspectList(
-                opContext,
-                authorizedRequestMap.keySet(),
-                authorizedRequestMap,
-                withSystemMetadata,
-                true)));
+                opContext, requestMap.keySet(), requestMap, withSystemMetadata, true)));
   }
 
   @Tag(name = "Generic Entities", description = "API for interacting with generic entities.")

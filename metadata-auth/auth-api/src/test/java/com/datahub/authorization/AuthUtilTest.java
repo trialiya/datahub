@@ -371,6 +371,95 @@ public class AuthUtilTest {
   }
 
   @Test
+  public void testRestrictedAspectManageIsConjunctionOfUpdateAndDelete() {
+    // MANAGE is not a key in RESTRICTED_ASPECT_PRIVILEGES; it has to be derived the same way
+    // lookupEntityAPIPrivilege derives it (UPDATE && DELETE), otherwise a caller who legitimately
+    // holds both halves is denied outright by the aspect check.
+    Authorizer mockAuthorizer =
+        mockAuthorizer(
+            Map.of(
+                TEST_AUTH_D.getActor().toUrnStr(), Map.of("EDIT_LINEAGE", Set.of(TEST_ENTITY_1)),
+                TEST_AUTH_C.getActor().toUrnStr(), Map.of("VIEW_LINEAGE", Set.of(TEST_ENTITY_1))));
+
+    AuthorizationSession sessionD = TestAuthSession.from(TEST_AUTH_D, mockAuthorizer);
+    AuthorizationSession sessionC = TestAuthSession.from(TEST_AUTH_C, mockAuthorizer);
+
+    // EDIT_LINEAGE satisfies both the UPDATE and the DELETE half.
+    assertTrue(
+        AuthUtil.isAPIAuthorizedAspect(
+            sessionD, ApiOperation.MANAGE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected EDIT_LINEAGE_PRIVILEGE to satisfy MANAGE (UPDATE && DELETE) of upstreamLineage");
+
+    // A read-only grant satisfies neither half.
+    assertFalse(
+        AuthUtil.isAPIAuthorizedAspect(
+            sessionC, ApiOperation.MANAGE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected VIEW_LINEAGE_PRIVILEGE not to satisfy MANAGE of upstreamLineage");
+
+    // Scoping still applies.
+    assertFalse(
+        AuthUtil.isAPIAuthorizedAspect(
+            sessionD, ApiOperation.MANAGE, TEST_ENTITY_2, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected the MANAGE grant to stay scoped to the resource it was granted on");
+  }
+
+  @Test
+  public void testUnauthorizedRequestedAspects() {
+    // Read endpoints fail an explicitly named aspect the caller cannot read, but silently drop the
+    // same aspect from a wildcard projection -- otherwise VIEW_LINEAGE would become mandatory for
+    // every plain "get entity" call.
+    Authorizer mockAuthorizer =
+        mockAuthorizer(
+            Map.of(
+                TEST_AUTH_B.getActor().toUrnStr(), Map.of("EDIT_ENTITY", Set.of(TEST_ENTITY_1)),
+                TEST_AUTH_C.getActor().toUrnStr(), Map.of("VIEW_LINEAGE", Set.of(TEST_ENTITY_1))));
+    AuthorizationSession sessionB = TestAuthSession.from(TEST_AUTH_B, mockAuthorizer);
+    AuthorizationSession sessionC = TestAuthSession.from(TEST_AUTH_C, mockAuthorizer);
+
+    // Explicit ask for a restricted aspect the caller cannot read -> reported.
+    assertEquals(
+        AuthUtil.unauthorizedRequestedAspects(
+            sessionB,
+            TEST_ENTITY_1,
+            List.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME, "datasetProperties")),
+        Set.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected only the unauthorized restricted aspect to be reported");
+
+    // Wildcard (null/empty) is not an explicit ask -> nothing reported, caller filters instead.
+    assertEquals(
+        AuthUtil.unauthorizedRequestedAspects(sessionB, TEST_ENTITY_1, null),
+        Set.of(),
+        "Expected a null projection to report nothing");
+    assertEquals(
+        AuthUtil.unauthorizedRequestedAspects(sessionB, TEST_ENTITY_1, List.of()),
+        Set.of(),
+        "Expected an empty projection to report nothing");
+
+    // Holding the read privilege clears it.
+    assertEquals(
+        AuthUtil.unauthorizedRequestedAspects(
+            sessionC, TEST_ENTITY_1, List.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME)),
+        Set.of(),
+        "Expected VIEW_LINEAGE_PRIVILEGE to clear the restricted aspect");
+
+    // Unrestricted aspects are never reported, whatever the caller holds.
+    assertEquals(
+        AuthUtil.unauthorizedRequestedAspects(
+            sessionC, TEST_ENTITY_1, List.of("datasetProperties")),
+        Set.of(),
+        "Expected unrestricted aspects never to be reported here");
+
+    // Batch form: an aspect denied on any one urn fails the whole request.
+    assertEquals(
+        AuthUtil.unauthorizedRequestedAspects(
+            sessionC,
+            List.of(TEST_ENTITY_1, TEST_ENTITY_2),
+            List.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME)),
+        Set.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected a grant on one urn not to cover a second, ungranted urn");
+  }
+
+  @Test
   public void testRestrictedAspectNameIsCaseInsensitive() {
     // The OpenAPI/Rest.li layers resolve aspect names case-insensitively, so the restriction must
     // match the same way -- otherwise `upstreamlineage` is a free bypass.

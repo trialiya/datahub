@@ -141,6 +141,22 @@ public class EntitiesController {
     }
     // TODO: Only supports one entity type at a time, may cause confusion
     final String entityName = urnToEntityName(entityUrns.iterator().next());
+
+    // An explicitly named restricted aspect the caller cannot read fails the request; a wildcard
+    // projection (aspectNames == null) drops it silently instead. See
+    // AuthUtil#unauthorizedRequestedAspects.
+    final Set<String> unauthorizedAspects =
+        AuthUtil.unauthorizedRequestedAspects(
+            opContext, entityUrns, aspectNames == null ? null : Arrays.asList(aspectNames));
+    if (!unauthorizedAspects.isEmpty()) {
+      throw new UnauthorizedException(
+          actorUrnStr
+              + " is unauthorized to get aspects "
+              + unauthorizedAspects
+              + " for: "
+              + entityUrns);
+    }
+
     final Set<String> requestedAspects =
         aspectNames == null
             ? opContext.getEntityAspectNames(entityName)

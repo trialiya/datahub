@@ -170,6 +170,10 @@ public abstract class GenericEntitiesController<
    * aspects the caller lacks privileges for are silently excluded rather than failing the whole
    * request. If {@code requestedAspectNames} is non-empty (an explicit ask), any restricted aspect
    * the caller is not authorized for causes an {@link UnauthorizedException}.
+   *
+   * <p>This wildcard-drops / explicit-403 split is the rule every read endpoint applies; see {@link
+   * AuthUtil#unauthorizedRequestedAspects} for why it falls that way and for the shared
+   * implementation the Rest.li and OpenAPI v1 endpoints use.
    */
   protected Set<String> authorizedAspectNames(
       @Nonnull OperationContext opContext,
@@ -198,9 +202,7 @@ public abstract class GenericEntitiesController<
     }
 
     Set<String> unauthorized =
-        requestedAspectNames.stream()
-            .filter(name -> !AuthUtil.isAPIAuthorizedAspect(opContext, READ, urn, name))
-            .collect(Collectors.toSet());
+        AuthUtil.unauthorizedRequestedAspects(opContext, urn, requestedAspectNames);
     if (!unauthorized.isEmpty()) {
       throw new UnauthorizedException(
           AuthenticationContext.getAuthentication().getActor().toUrnStr()

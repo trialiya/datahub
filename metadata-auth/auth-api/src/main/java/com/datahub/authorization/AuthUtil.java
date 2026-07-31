@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -335,16 +336,31 @@ public class AuthUtil {
    * Looks up the aspect-specific privilege restriction (if any) configured in {@link
    * PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES} for the given entity type / aspect name / api
    * operation triple. Entity type and aspect name are matched case-insensitively.
+   *
+   * <p>MANAGE is derived as the conjunction of UPDATE and DELETE, mirroring {@link
+   * #lookupEntityAPIPrivilege}, so that restricted aspects answer a MANAGE question the same way
+   * the entity-level privilege maps do rather than denying outright for a caller that legitimately
+   * holds both halves.
    */
   @Nullable
   private static Disjunctive<Conjunctive<PoliciesConfig.Privilege>> lookupRestrictedAspectPrivilege(
       @Nonnull final String entityType,
       @Nonnull final String aspectName,
       @Nonnull final ApiOperation apiOperation) {
-    return NORMALIZED_RESTRICTED_ASPECT_PRIVILEGES
-        .getOrDefault(entityType.toLowerCase(Locale.ROOT), Map.of())
-        .getOrDefault(aspectName.toLowerCase(Locale.ROOT), Map.of())
-        .get(apiOperation);
+    final Map<ApiOperation, Disjunctive<Conjunctive<PoliciesConfig.Privilege>>> aspectPrivileges =
+        NORMALIZED_RESTRICTED_ASPECT_PRIVILEGES
+            .getOrDefault(entityType.toLowerCase(Locale.ROOT), Map.of())
+            .getOrDefault(aspectName.toLowerCase(Locale.ROOT), Map.of());
+
+    if (ApiOperation.MANAGE.equals(apiOperation)) {
+      // Conjoining with DENY_ACCESS (an empty disjunctive) yields an empty disjunctive, i.e. deny,
+      // so a half-configured aspect denies MANAGE rather than silently requiring only one half.
+      return Disjunctive.conjoin(
+          aspectPrivileges.getOrDefault(UPDATE, DENY_ACCESS),
+          aspectPrivileges.getOrDefault(DELETE, DENY_ACCESS));
+    }
+
+    return aspectPrivileges.get(apiOperation);
   }
 
   /**
@@ -439,6 +455,51 @@ public class AuthUtil {
     return aspectNames.stream()
         .filter(aspectName -> isAPIAuthorizedAspect(session, apiOperation, urn, aspectName))
         .collect(Collectors.toSet());
+  }
+
+  /**
+   * The restricted aspects a caller <i>explicitly named</i> in a read request but is not authorized
+   * to READ. Returns an empty set for a null/empty request, which conventionally means "all
+   * aspects" -- a wildcard is not an explicit ask for anything in particular.
+   *
+   * <p>This is the counterpart to {@link #filterAuthorizedAspects}, and the two split the
+   * projection problem along the only line that is safe for both sides:
+   *
+   * <ul>
+   *   <li><b>Explicitly named</b> aspects must fail the request (403). Dropping them silently is
+   *       indistinguishable, to the client, from the aspect simply not being set -- a caller that
+   *       asks for `upstreamLineage` and gets a response without it would reasonably conclude the
+   *       dataset has no upstream lineage.
+   *   <li><b>Wildcard</b> projections drop restricted aspects silently, because failing them would
+   *       make the read privilege mandatory for every plain "get entity" call, breaking readers
+   *       that never wanted the restricted aspect in the first place.
+   * </ul>
+   *
+   * <p>Returned sorted so error messages are deterministic.
+   */
+  public static Set<String> unauthorizedRequestedAspects(
+      @Nonnull final AuthorizationSession session,
+      @Nonnull final Urn urn,
+      @Nullable final Collection<String> requestedAspectNames) {
+    if (requestedAspectNames == null || requestedAspectNames.isEmpty()) {
+      return Set.of();
+    }
+    return requestedAspectNames.stream()
+        .filter(aspectName -> !isAPIAuthorizedAspect(session, READ, urn, aspectName))
+        .collect(Collectors.toCollection(TreeSet::new));
+  }
+
+  /**
+   * Same as {@link #unauthorizedRequestedAspects(AuthorizationSession, Urn, Collection)} across
+   * several urns, for batch endpoints. An aspect is reported if any one of the urns denies it.
+   */
+  public static Set<String> unauthorizedRequestedAspects(
+      @Nonnull final AuthorizationSession session,
+      @Nonnull final Collection<Urn> urns,
+      @Nullable final Collection<String> requestedAspectNames) {
+    return urns.stream()
+        .flatMap(urn -> unauthorizedRequestedAspects(session, urn, requestedAspectNames).stream())
+        .collect(Collectors.toCollection(TreeSet::new));
   }
 
   /**

@@ -87,6 +87,16 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
       return RestliUtils.toTask(systemOperationContext,
         () -> {
           final String entityName = urnToEntityName(urn);
+          // An explicitly named restricted aspect the caller cannot read fails the request; a
+          // wildcard projection (aspectNames == null) drops it silently instead.
+          final Set<String> unauthorizedAspects =
+              AuthUtil.unauthorizedRequestedAspects(
+                  opContext, urn, aspectNames == null ? null : Arrays.asList(aspectNames));
+          if (!unauthorizedAspects.isEmpty()) {
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + unauthorizedAspects + " for " + urn);
+          }
           final Set<String> requestedAspects =
               aspectNames == null
                   ? opContext.getEntityAspectNames(entityName)
@@ -144,6 +154,16 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
     final String entityName = urnToEntityName(urns.iterator().next());
     return RestliUtils.toTask(systemOperationContext,
         () -> {
+          // An explicitly named restricted aspect the caller cannot read fails the request; a
+          // wildcard projection (aspectNames == null) drops it silently instead.
+          final Set<String> unauthorizedAspects =
+              AuthUtil.unauthorizedRequestedAspects(
+                  opContext, urns, aspectNames == null ? null : Arrays.asList(aspectNames));
+          if (!unauthorizedAspects.isEmpty()) {
+            throw new RestLiServiceException(
+                HttpStatus.S_403_FORBIDDEN,
+                "User is unauthorized to get aspects " + unauthorizedAspects + " for: " + urnStrs);
+          }
           final Set<String> requestedAspects =
               aspectNames == null
                   ? opContext.getEntityAspectNames(entityName)
