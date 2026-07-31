@@ -371,30 +371,42 @@ public class AuthUtilTest {
   }
 
   @Test
-  public void testRestrictedAspectManageIsConjunctionOfUpdateAndDelete() {
-    // MANAGE is not a key in RESTRICTED_ASPECT_PRIVILEGES; it has to be derived the same way
-    // lookupEntityAPIPrivilege derives it (UPDATE && DELETE), otherwise a caller who legitimately
-    // holds both halves is denied outright by the aspect check.
+  public void testRestrictedAspectManageIsConjunctionOfReadUpdateAndDelete() {
+    // MANAGE is not a key in RESTRICTED_ASPECT_PRIVILEGES; it is derived as READ && UPDATE &&
+    // DELETE. Unlike the entity-level maps (UPDATE && DELETE), READ is part of the conjunction
+    // because for restricted aspects write deliberately does not imply read -- managing an aspect
+    // one is not allowed to see would otherwise be possible.
     Authorizer mockAuthorizer =
         mockAuthorizer(
             Map.of(
-                TEST_AUTH_D.getActor().toUrnStr(), Map.of("EDIT_LINEAGE", Set.of(TEST_ENTITY_1)),
+                TEST_AUTH_D.getActor().toUrnStr(),
+                    Map.of(
+                        "EDIT_LINEAGE", Set.of(TEST_ENTITY_1),
+                        "VIEW_LINEAGE", Set.of(TEST_ENTITY_1)),
+                TEST_AUTH_B.getActor().toUrnStr(), Map.of("EDIT_LINEAGE", Set.of(TEST_ENTITY_1)),
                 TEST_AUTH_C.getActor().toUrnStr(), Map.of("VIEW_LINEAGE", Set.of(TEST_ENTITY_1))));
 
     AuthorizationSession sessionD = TestAuthSession.from(TEST_AUTH_D, mockAuthorizer);
+    AuthorizationSession sessionB = TestAuthSession.from(TEST_AUTH_B, mockAuthorizer);
     AuthorizationSession sessionC = TestAuthSession.from(TEST_AUTH_C, mockAuthorizer);
 
-    // EDIT_LINEAGE satisfies both the UPDATE and the DELETE half.
+    // EDIT_LINEAGE covers UPDATE and DELETE, VIEW_LINEAGE covers READ -- all three halves held.
     assertTrue(
         AuthUtil.isAPIAuthorizedAspect(
             sessionD, ApiOperation.MANAGE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
-        "Expected EDIT_LINEAGE_PRIVILEGE to satisfy MANAGE (UPDATE && DELETE) of upstreamLineage");
+        "Expected EDIT_LINEAGE + VIEW_LINEAGE to satisfy MANAGE of upstreamLineage");
 
-    // A read-only grant satisfies neither half.
+    // Write-only: UPDATE and DELETE are covered but READ is not.
+    assertFalse(
+        AuthUtil.isAPIAuthorizedAspect(
+            sessionB, ApiOperation.MANAGE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected EDIT_LINEAGE alone (no read grant) not to satisfy MANAGE of upstreamLineage");
+
+    // Read-only: neither UPDATE nor DELETE is covered.
     assertFalse(
         AuthUtil.isAPIAuthorizedAspect(
             sessionC, ApiOperation.MANAGE, TEST_ENTITY_1, Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
-        "Expected VIEW_LINEAGE_PRIVILEGE not to satisfy MANAGE of upstreamLineage");
+        "Expected VIEW_LINEAGE alone not to satisfy MANAGE of upstreamLineage");
 
     // Scoping still applies.
     assertFalse(

@@ -337,10 +337,11 @@ public class AuthUtil {
    * PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES} for the given entity type / aspect name / api
    * operation triple. Entity type and aspect name are matched case-insensitively.
    *
-   * <p>MANAGE is derived as the conjunction of UPDATE and DELETE, mirroring {@link
-   * #lookupEntityAPIPrivilege}, so that restricted aspects answer a MANAGE question the same way
-   * the entity-level privilege maps do rather than denying outright for a caller that legitimately
-   * holds both halves.
+   * <p>MANAGE is derived as the conjunction of READ, UPDATE and DELETE. The entity-level maps
+   * ({@link #lookupEntityAPIPrivilege}) derive it from UPDATE and DELETE alone because there an
+   * edit privilege already implies read; for restricted aspects that implication is deliberately
+   * broken (write does not grant read), so READ has to be conjoined explicitly -- managing an
+   * aspect one is not allowed to see would otherwise be possible.
    */
   @Nullable
   private static Disjunctive<Conjunctive<PoliciesConfig.Privilege>> lookupRestrictedAspectPrivilege(
@@ -354,10 +355,13 @@ public class AuthUtil {
 
     if (ApiOperation.MANAGE.equals(apiOperation)) {
       // Conjoining with DENY_ACCESS (an empty disjunctive) yields an empty disjunctive, i.e. deny,
-      // so a half-configured aspect denies MANAGE rather than silently requiring only one half.
+      // so a partially configured aspect denies MANAGE rather than requiring only the configured
+      // operations.
       return Disjunctive.conjoin(
-          aspectPrivileges.getOrDefault(UPDATE, DENY_ACCESS),
-          aspectPrivileges.getOrDefault(DELETE, DENY_ACCESS));
+          aspectPrivileges.getOrDefault(READ, DENY_ACCESS),
+          Disjunctive.conjoin(
+              aspectPrivileges.getOrDefault(UPDATE, DENY_ACCESS),
+              aspectPrivileges.getOrDefault(DELETE, DENY_ACCESS)));
     }
 
     return aspectPrivileges.get(apiOperation);
