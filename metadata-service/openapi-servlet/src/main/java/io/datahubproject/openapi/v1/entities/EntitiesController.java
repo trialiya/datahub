@@ -142,44 +142,29 @@ public class EntitiesController {
     // TODO: Only supports one entity type at a time, may cause confusion
     final String entityName = urnToEntityName(entityUrns.iterator().next());
 
-    // An explicitly named restricted aspect the caller cannot read fails the request; a wildcard
-    // projection (aspectNames == null) drops it silently instead. See
-    // AuthUtil#unauthorizedRequestedAspects.
-    final Set<String> unauthorizedAspects =
-        AuthUtil.unauthorizedRequestedAspects(
-            opContext, entityUrns, aspectNames == null ? null : Arrays.asList(aspectNames));
-    if (!unauthorizedAspects.isEmpty()) {
-      throw new UnauthorizedException(
-          actorUrnStr
-              + " is unauthorized to get aspects "
-              + unauthorizedAspects
-              + " for: "
-              + entityUrns);
-    }
-
     final Set<String> requestedAspects =
         aspectNames == null
             ? opContext.getEntityAspectNames(entityName)
             : new HashSet<>(Arrays.asList(aspectNames));
-    // Group urns by their authorized aspect projection (usually a single group, since most
-    // entity types have no restricted aspects and share the same projection).
+    // Restricted aspects the caller cannot read are dropped from the projection silently. Group
+    // urns by their authorized projection (usually a single group, since most entity types have no
+    // restricted aspects and share the same projection). A projection with nothing readable left
+    // cannot be forwarded empty (that reads as "all aspects"), so it falls back to the key aspect,
+    // which this endpoint always includes anyway: the urn appears exactly as it would had none of
+    // the requested aspects been set.
+    final Set<String> keyAspectProjection =
+        Set.of(opContext.getEntityRegistry().getEntitySpec(entityName).getKeyAspectName());
     Map<Set<String>, List<Urn>> urnsByProjection =
         entityUrns.stream()
             .collect(
                 Collectors.groupingBy(
-                    urn ->
-                        AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspects)));
-
-    if (urnsByProjection.keySet().stream()
-        .anyMatch(projection -> AuthUtil.isProjectionDenied(requestedAspects, projection))) {
-      // An empty projection would be read as "all aspects" by the entity service.
-      throw new UnauthorizedException(
-          actorUrnStr
-              + " is unauthorized to get aspects "
-              + requestedAspects
-              + " for: "
-              + entityUrns);
-    }
+                    urn -> {
+                      Set<String> projection =
+                          AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspects);
+                      return AuthUtil.isProjectionDenied(requestedAspects, projection)
+                          ? keyAspectProjection
+                          : projection;
+                    }));
 
     Throwable exceptionally = null;
     try {

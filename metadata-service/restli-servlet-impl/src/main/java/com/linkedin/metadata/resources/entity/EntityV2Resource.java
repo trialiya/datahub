@@ -15,6 +15,7 @@ import com.datahub.authorization.EntitySpec;
 import com.datahub.plugins.auth.authorization.Authorizer;
 import com.linkedin.common.urn.Urn;
 import com.linkedin.entity.EntityResponse;
+import com.linkedin.entity.EnvelopedAspectMap;
 import com.linkedin.metadata.authorization.PoliciesConfig;
 import com.linkedin.metadata.entity.EntityService;
 import com.linkedin.metadata.resources.restli.RestliUtils;
@@ -87,27 +88,32 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
       return RestliUtils.toTask(systemOperationContext,
         () -> {
           final String entityName = urnToEntityName(urn);
-          // An explicitly named restricted aspect the caller cannot read fails the request; a
-          // wildcard projection (aspectNames == null) drops it silently instead.
-          final Set<String> unauthorizedAspects =
-              AuthUtil.unauthorizedRequestedAspects(
-                  opContext, urn, aspectNames == null ? null : Arrays.asList(aspectNames));
-          if (!unauthorizedAspects.isEmpty()) {
-            throw new RestLiServiceException(
-                HttpStatus.S_403_FORBIDDEN,
-                "User is unauthorized to get aspects " + unauthorizedAspects + " for " + urn);
-          }
+          // Restricted aspects the caller cannot read are dropped from the projection silently.
           final Set<String> requestedAspects =
               aspectNames == null
                   ? opContext.getEntityAspectNames(entityName)
                   : new HashSet<>(Arrays.asList(aspectNames));
-          final Set<String> projectedAspects =
+          Set<String> projectedAspects =
               AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspects);
           if (AuthUtil.isProjectionDenied(requestedAspects, projectedAspects)) {
-            // An empty projection would be read as "all aspects" by the entity service.
-            throw new RestLiServiceException(
-                HttpStatus.S_403_FORBIDDEN,
-                "User is unauthorized to get aspects " + requestedAspects + " for " + urn);
+            // Nothing readable is left, and forwarding the empty projection would be read as "all
+            // aspects" by the entity service. Answer exactly as if none of the requested aspects
+            // were set: with alwaysIncludeKeyAspect (the default) that response carries the key
+            // aspect -- the service synthesizes it even when unstored -- so fall back to a
+            // key-aspect projection; without it the response is the entity with no aspects.
+            if (alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect) {
+              projectedAspects =
+                  Set.of(
+                      opContext
+                          .getEntityRegistry()
+                          .getEntitySpec(entityName)
+                          .getKeyAspectName());
+            } else {
+              return new EntityResponse()
+                  .setUrn(urn)
+                  .setEntityName(entityName)
+                  .setAspects(new EnvelopedAspectMap());
+            }
           }
           try {
             return _entityService.getEntityV2(opContext, entityName, urn, projectedAspects, alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect);
@@ -154,22 +160,13 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
     final String entityName = urnToEntityName(urns.iterator().next());
     return RestliUtils.toTask(systemOperationContext,
         () -> {
-          // An explicitly named restricted aspect the caller cannot read fails the request; a
-          // wildcard projection (aspectNames == null) drops it silently instead.
-          final Set<String> unauthorizedAspects =
-              AuthUtil.unauthorizedRequestedAspects(
-                  opContext, urns, aspectNames == null ? null : Arrays.asList(aspectNames));
-          if (!unauthorizedAspects.isEmpty()) {
-            throw new RestLiServiceException(
-                HttpStatus.S_403_FORBIDDEN,
-                "User is unauthorized to get aspects " + unauthorizedAspects + " for: " + urnStrs);
-          }
           final Set<String> requestedAspects =
               aspectNames == null
                   ? opContext.getEntityAspectNames(entityName)
                   : new HashSet<>(Arrays.asList(aspectNames));
-          // Group urns by their authorized aspect projection (usually a single group, since
-          // most entity types have no restricted aspects and share the same projection).
+          // Restricted aspects the caller cannot read are dropped from the projection silently.
+          // Group urns by their authorized projection (usually a single group, since most entity
+          // types have no restricted aspects and share the same projection).
           Map<Set<String>, List<Urn>> urnsByProjection =
               urns.stream()
                   .collect(
@@ -177,23 +174,45 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
                           urn ->
                               AuthUtil.filterAuthorizedAspects(
                                   opContext, READ, urn, requestedAspects)));
-          if (urnsByProjection.keySet().stream()
-              .anyMatch(projection -> AuthUtil.isProjectionDenied(requestedAspects, projection))) {
-            // An empty projection would be read as "all aspects" by the entity service.
-            throw new RestLiServiceException(
-                HttpStatus.S_403_FORBIDDEN,
-                "User is unauthorized to get aspects " + requestedAspects + " for: " + urnStrs);
-          }
           try {
+            boolean includeKeyAspect = alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect;
             Map<Urn, EntityResponse> result = new java.util.HashMap<>();
             for (Map.Entry<Set<String>, List<Urn>> entry : urnsByProjection.entrySet()) {
+              Set<String> projection = entry.getKey();
+              if (AuthUtil.isProjectionDenied(requestedAspects, projection)) {
+                // Nothing readable is left for these urns, and forwarding the empty projection
+                // would be read as "all aspects" downstream. Answer exactly as if none of the
+                // requested aspects were set: with alwaysIncludeKeyAspect (the default) that
+                // response carries the key aspect -- the service synthesizes it even when
+                // unstored -- so fall back to a key-aspect projection; without it each urn maps
+                // to an entity with no aspects.
+                if (!includeKeyAspect) {
+                  entry
+                      .getValue()
+                      .forEach(
+                          urn ->
+                              result.put(
+                                  urn,
+                                  new EntityResponse()
+                                      .setUrn(urn)
+                                      .setEntityName(entityName)
+                                      .setAspects(new EnvelopedAspectMap())));
+                  continue;
+                }
+                projection =
+                    Set.of(
+                        opContext
+                            .getEntityRegistry()
+                            .getEntitySpec(entityName)
+                            .getKeyAspectName());
+              }
               result.putAll(
                   _entityService.getEntitiesV2(
                       opContext,
                       entityName,
                       new HashSet<>(entry.getValue()),
-                      entry.getKey(),
-                      alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect));
+                      projection,
+                      includeKeyAspect));
             }
             return result;
           } catch (Exception e) {

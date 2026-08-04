@@ -5,7 +5,6 @@ import static com.datahub.authorization.AuthUtil.isAPIAuthorized;
 import static com.datahub.authorization.AuthUtil.isAPIAuthorizedEntityUrns;
 import static com.datahub.authorization.AuthUtil.isAPIAuthorizedUrns;
 import static com.datahub.authorization.AuthUtil.isProjectionDenied;
-import static com.datahub.authorization.AuthUtil.unauthorizedRequestedAspects;
 import static com.linkedin.metadata.authorization.ApiGroup.ENTITY;
 import static com.linkedin.metadata.authorization.ApiOperation.READ;
 import static com.linkedin.metadata.resources.restli.RestliConstants.*;
@@ -102,44 +101,35 @@ public class EntityVersionedV2Resource
     }
     return RestliUtils.toTask(systemOperationContext,
         () -> {
-          // An explicitly named restricted aspect the caller cannot read fails the request; a
-          // wildcard projection (aspectNames == null) drops it silently instead.
-          final Set<String> unauthorizedAspects =
-              unauthorizedRequestedAspects(
-                  opContext, urns, aspectNames == null ? null : Arrays.asList(aspectNames));
-          if (!unauthorizedAspects.isEmpty()) {
-            throw new RestLiServiceException(
-                HttpStatus.S_403_FORBIDDEN,
-                "User is unauthorized to get aspects " + unauthorizedAspects + " for: "
-                    + versionedUrnStrs);
-          }
-
           final Set<String> requestedAspects =
               aspectNames == null
                   ? opContext.getEntityAspectNames(entityType)
                   : new HashSet<>(Arrays.asList(aspectNames));
+          // Restricted aspects the caller cannot read are dropped from the projection silently.
           // Aspect restrictions are resource-scoped, so the projection has to be computed per urn
           // rather than once for the entity type -- a resource-scoped policy would never match an
-          // entity-type-only check. Urns sharing a projection are fetched together.
+          // entity-type-only check. Urns sharing a projection are fetched together. A projection
+          // with nothing readable left cannot be forwarded empty (that reads as "all aspects"),
+          // so it falls back to the key aspect, which this endpoint always includes anyway: the
+          // urn appears exactly as it would had none of the requested aspects been set.
+          final Set<String> keyAspectProjection =
+              Set.of(
+                  opContext.getEntityRegistry().getEntitySpec(entityType).getKeyAspectName());
           Map<Set<String>, List<com.linkedin.common.urn.VersionedUrn>> versionedUrnsByProjection =
               versionedUrnStrs.stream()
                   .collect(
                       Collectors.groupingBy(
-                          versionedUrn ->
-                              filterAuthorizedAspects(
-                                  opContext,
-                                  READ,
-                                  UrnUtils.getUrn(versionedUrn.getUrn()),
-                                  requestedAspects)));
-
-          if (versionedUrnsByProjection.keySet().stream()
-              .anyMatch(projection -> isProjectionDenied(requestedAspects, projection))) {
-            // An empty projection would be read as "all aspects" by the entity service.
-            throw new RestLiServiceException(
-                HttpStatus.S_403_FORBIDDEN,
-                "User is unauthorized to get aspects " + requestedAspects + " for: "
-                    + versionedUrnStrs);
-          }
+                          versionedUrn -> {
+                            Set<String> projection =
+                                filterAuthorizedAspects(
+                                    opContext,
+                                    READ,
+                                    UrnUtils.getUrn(versionedUrn.getUrn()),
+                                    requestedAspects);
+                            return isProjectionDenied(requestedAspects, projection)
+                                ? keyAspectProjection
+                                : projection;
+                          }));
 
           try {
             Map<Urn, EntityResponse> result = new HashMap<>();

@@ -427,12 +427,16 @@ public class AuthUtilTest {
   }
 
   @Test
-  public void testUnauthorizedRequestedAspects() {
-    // Read endpoints fail an explicitly named aspect the caller cannot read, but silently drop the
-    // same aspect from a wildcard projection -- otherwise a lineage-read privilege would become
-    // mandatory for every plain "get entity" call. User D holds no privileges at all, so it has no
-    // path to reading upstreamLineage (unlike, e.g., EDIT_ENTITY_PRIVILEGE, which is part of its
-    // READ set -- see testRestrictedAspectPrivileges).
+  public void testExplicitlyRequestedRestrictedAspectsAreFilteredSilently() {
+    // A multi-aspect read never fails on account of a restricted aspect: the aspect is dropped from
+    // the projection whether it was named explicitly or came from a wildcard, leaving the response
+    // exactly as it would look had that aspect never been set. Failing instead turns one unreadable
+    // aspect into an error for a whole page of results, at moments the caller cannot predict. Only
+    // the single-aspect endpoints answer with 403 (see isAPIAuthorizedEntityUrnsWithAspect).
+    //
+    // User D holds no privileges at all, so it has no path to reading upstreamLineage (unlike,
+    // e.g., EDIT_ENTITY_PRIVILEGE, which is part of its READ set -- see
+    // testRestrictedAspectPrivileges).
     Authorizer mockAuthorizer =
         mockAuthorizer(
             Map.of(
@@ -440,47 +444,55 @@ public class AuthUtilTest {
     AuthorizationSession sessionD = TestAuthSession.from(TEST_AUTH_D, mockAuthorizer);
     AuthorizationSession sessionC = TestAuthSession.from(TEST_AUTH_C, mockAuthorizer);
 
-    // Explicit ask for a restricted aspect the caller cannot read -> reported.
+    // Explicit ask for a restricted aspect the caller cannot read -> dropped, the rest survives.
     assertEquals(
-        AuthUtil.unauthorizedRequestedAspects(
+        AuthUtil.filterAuthorizedAspects(
             sessionD,
+            ApiOperation.READ,
             TEST_ENTITY_1,
             List.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME, "datasetProperties")),
-        Set.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
-        "Expected only the unauthorized restricted aspect to be reported");
+        Set.of("datasetProperties"),
+        "Expected only the unauthorized restricted aspect to be dropped from an explicit ask");
 
-    // Wildcard (null/empty) is not an explicit ask -> nothing reported, caller filters instead.
+    // Holding the read privilege keeps it.
     assertEquals(
-        AuthUtil.unauthorizedRequestedAspects(sessionD, TEST_ENTITY_1, null),
-        Set.of(),
-        "Expected a null projection to report nothing");
-    assertEquals(
-        AuthUtil.unauthorizedRequestedAspects(sessionD, TEST_ENTITY_1, List.of()),
-        Set.of(),
-        "Expected an empty projection to report nothing");
-
-    // Holding the read privilege clears it.
-    assertEquals(
-        AuthUtil.unauthorizedRequestedAspects(
-            sessionC, TEST_ENTITY_1, List.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME)),
-        Set.of(),
-        "Expected VIEW_LINEAGE_PRIVILEGE to clear the restricted aspect");
-
-    // Unrestricted aspects are never reported, whatever the caller holds.
-    assertEquals(
-        AuthUtil.unauthorizedRequestedAspects(
-            sessionC, TEST_ENTITY_1, List.of("datasetProperties")),
-        Set.of(),
-        "Expected unrestricted aspects never to be reported here");
-
-    // Batch form: an aspect denied on any one urn fails the whole request.
-    assertEquals(
-        AuthUtil.unauthorizedRequestedAspects(
+        AuthUtil.filterAuthorizedAspects(
             sessionC,
-            List.of(TEST_ENTITY_1, TEST_ENTITY_2),
+            ApiOperation.READ,
+            TEST_ENTITY_1,
             List.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME)),
         Set.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+        "Expected VIEW_LINEAGE_PRIVILEGE to keep the restricted aspect");
+
+    // Unrestricted aspects are never dropped here, whatever the caller holds.
+    assertEquals(
+        AuthUtil.filterAuthorizedAspects(
+            sessionD, ApiOperation.READ, TEST_ENTITY_1, List.of("datasetProperties")),
+        Set.of("datasetProperties"),
+        "Expected unrestricted aspects never to be dropped by the aspect-specific restriction");
+
+    // The grant stays resource-scoped, so the same caller loses the aspect on a second urn -- which
+    // is why batch endpoints have to compute the projection per urn rather than once per request.
+    assertEquals(
+        AuthUtil.filterAuthorizedAspects(
+            sessionC,
+            ApiOperation.READ,
+            TEST_ENTITY_2,
+            List.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME)),
+        Set.of(),
         "Expected a grant on one urn not to cover a second, ungranted urn");
+
+    // A request consisting solely of the restricted aspect collapses to nothing. Callers must
+    // detect that and omit the urn, never forward the empty set (which reads as "all aspects").
+    assertTrue(
+        AuthUtil.isProjectionDenied(
+            List.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME),
+            AuthUtil.filterAuthorizedAspects(
+                sessionD,
+                ApiOperation.READ,
+                TEST_ENTITY_1,
+                List.of(Constants.UPSTREAM_LINEAGE_ASPECT_NAME))),
+        "Expected a fully-filtered projection to be flagged as denied");
   }
 
   @Test

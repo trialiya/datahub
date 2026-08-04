@@ -130,51 +130,57 @@ public abstract class GenericEntitiesController<
       boolean expandEmpty)
       throws URISyntaxException {
 
+    // A urn whose entire projection was filtered away is dropped from the request rather than
+    // forwarded with an empty aspect map, which resolveAspectSpecs would expand back to every
+    // aspect -- handing back the very aspects that were just filtered out. Such a urn is simply
+    // absent from the response, exactly as it would be if none of the requested aspects were set.
+    LinkedHashMap<Urn, Map<String, Long>> authorizedRequest =
+        urns.stream()
+            .map(
+                urn ->
+                    Map.entry(urn, authorizedAspectNames(opContext, urn, aspectNames, expandEmpty)))
+            .filter(entry -> !AuthUtil.isProjectionDenied(aspectNames, entry.getValue()))
+            .collect(
+                Collectors.toMap(
+                    Map.Entry::getKey,
+                    entry ->
+                        entry.getValue().stream()
+                            .collect(Collectors.toMap(aspectName -> aspectName, aspectName -> 0L)),
+                    (a, b) -> {
+                      throw new IllegalStateException("Duplicate key");
+                    },
+                    LinkedHashMap::new));
+
     LinkedHashMap<Urn, Map<AspectSpec, Long>> aspectSpecMap =
-        RequestInputUtil.resolveAspectSpecs(
-            entityRegistry,
-            urns.stream()
-                .map(
-                    urn ->
-                        Map.entry(
-                            urn,
-                            authorizedAspectNames(opContext, urn, aspectNames, expandEmpty).stream()
-                                .map(aspectName -> Map.entry(aspectName, 0L))
-                                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue))))
-                .collect(
-                    Collectors.toMap(
-                        Map.Entry::getKey,
-                        Map.Entry::getValue,
-                        (a, b) -> {
-                          throw new IllegalStateException("Duplicate key");
-                        },
-                        LinkedHashMap::new)),
-            0L,
-            expandEmpty);
+        RequestInputUtil.resolveAspectSpecs(entityRegistry, authorizedRequest, 0L, expandEmpty);
 
     return buildEntityVersionedAspectList(
         opContext, urns, aspectSpecMap, withSystemMetadata, expandEmpty);
   }
 
   /**
-   * Enforces aspect-specific privilege restrictions (see {@link
+   * Applies aspect-specific privilege restrictions (see {@link
    * com.linkedin.metadata.authorization.PoliciesConfig#RESTRICTED_ASPECT_PRIVILEGES}, e.g.
    * `dataset`'s `upstreamLineage`, whose read/write privileges mirror {@link
-   * com.linkedin.metadata.authorization.ApiGroup#LINEAGE}) for a set of requested aspect names on a
+   * com.linkedin.metadata.authorization.ApiGroup#LINEAGE}) to a set of requested aspect names on a
    * given urn.
+   *
+   * <p>Restricted aspects the caller cannot READ are dropped from the projection <b>silently</b>,
+   * whether they were named explicitly or came from a wildcard expansion. A multi-aspect read never
+   * fails on account of a single aspect the caller may not see: the response looks exactly as it
+   * would if that aspect were simply unset, and a caller listing aspects gets back the ones it is
+   * entitled to instead of a 403 for the whole request. Only the single-aspect endpoints -- {@link
+   * #getAspect} and its create/patch/delete counterparts, which name one aspect of one entity and
+   * have nothing left to return once it is removed -- answer with an {@link UnauthorizedException}.
    *
    * <p>If {@code requestedAspectNames} is null/empty it is passed through untouched unless {@code
    * expandEmpty} is set: an empty aspect list only means "all aspects" when {@link
    * RequestInputUtil#resolveAspectSpecs} is going to expand it, and otherwise means "no aspects" --
    * expanding it here would hand an unauthorized caller the entity's full aspect list while an
-   * authorized caller (nothing to strip) still got nothing. When expansion does apply, restricted
-   * aspects the caller lacks privileges for are silently excluded rather than failing the whole
-   * request. If {@code requestedAspectNames} is non-empty (an explicit ask), any restricted aspect
-   * the caller is not authorized for causes an {@link UnauthorizedException}.
+   * authorized caller (nothing to strip) still got nothing.
    *
-   * <p>This wildcard-drops / explicit-403 split is the rule every read endpoint applies; see {@link
-   * AuthUtil#unauthorizedRequestedAspects} for why it falls that way and for the shared
-   * implementation the Rest.li and OpenAPI v1 endpoints use.
+   * <p>An empty result for a non-empty request means "nothing may be returned", never "return
+   * everything" -- see {@link #buildEntityList} and {@link AuthUtil#isProjectionDenied}.
    */
   protected Set<String> authorizedAspectNames(
       @Nonnull OperationContext opContext,
@@ -202,17 +208,7 @@ public abstract class GenericEntitiesController<
       return allAspectNames;
     }
 
-    Set<String> unauthorized =
-        AuthUtil.unauthorizedRequestedAspects(opContext, urn, requestedAspectNames);
-    if (!unauthorized.isEmpty()) {
-      throw new UnauthorizedException(
-          AuthenticationContext.getAuthentication().getActor().toUrnStr()
-              + " is unauthorized to access aspects "
-              + unauthorized
-              + " for "
-              + urn);
-    }
-    return requestedAspectNames;
+    return AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspectNames);
   }
 
   /**
