@@ -52,7 +52,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -453,9 +452,20 @@ public class AuthUtil {
   /**
    * Filters a collection of aspect names down to those the caller is authorized to access for the
    * given urn and api operation, per any configured aspect-specific privilege restrictions.
-   * Intended for endpoints that project/return multiple aspects at once (e.g. "get entity" with no
-   * explicit aspect list, or search/scroll responses that embed aspects) so that restricted aspects
-   * are silently excluded from the response rather than failing the whole request.
+   *
+   * <p>This is how every endpoint that projects or returns <i>multiple</i> aspects at once handles
+   * a restriction -- "get entity", batch gets, and search/scroll responses that embed aspects.
+   * Restricted aspects the caller may not see are excluded from the response <b>silently</b>,
+   * whether they were named explicitly or came from a wildcard, so the response is exactly what the
+   * caller would have received had the aspect never been set. Failing these requests instead turns
+   * one unreadable aspect into a 403 for an entire page of results, at unpredictable moments -- a
+   * caller listing aspects has no way to know in advance which entities carry a restricted one.
+   *
+   * <p>Only endpoints addressing a <i>single named aspect of a single entity</i> ({@code GET
+   * /openapi/v3/entity/dataset/{urn}/upstreamLineage} and its create/patch/delete counterparts, the
+   * Rest.li {@code /aspects} resource) answer with 403, via {@link
+   * #isAPIAuthorizedEntityUrnsWithAspect} -- there the aspect is the entire request, so dropping it
+   * would leave nothing to return and silence would be indistinguishable from success.
    *
    * <p><b>Callers must handle an empty result explicitly.</b> Several {@code EntityService} read
    * methods interpret an empty aspect-name set as "all aspects", so passing an empty projection
@@ -470,51 +480,6 @@ public class AuthUtil {
     return aspectNames.stream()
         .filter(aspectName -> isAPIAuthorizedAspect(session, apiOperation, urn, aspectName))
         .collect(Collectors.toSet());
-  }
-
-  /**
-   * The restricted aspects a caller <i>explicitly named</i> in a read request but is not authorized
-   * to READ. Returns an empty set for a null/empty request, which conventionally means "all
-   * aspects" -- a wildcard is not an explicit ask for anything in particular.
-   *
-   * <p>This is the counterpart to {@link #filterAuthorizedAspects}, and the two split the
-   * projection problem along the only line that is safe for both sides:
-   *
-   * <ul>
-   *   <li><b>Explicitly named</b> aspects must fail the request (403). Dropping them silently is
-   *       indistinguishable, to the client, from the aspect simply not being set -- a caller that
-   *       asks for `upstreamLineage` and gets a response without it would reasonably conclude the
-   *       dataset has no upstream lineage.
-   *   <li><b>Wildcard</b> projections drop restricted aspects silently, because failing them would
-   *       make the read privilege mandatory for every plain "get entity" call, breaking readers
-   *       that never wanted the restricted aspect in the first place.
-   * </ul>
-   *
-   * <p>Returned sorted so error messages are deterministic.
-   */
-  public static Set<String> unauthorizedRequestedAspects(
-      @Nonnull final AuthorizationSession session,
-      @Nonnull final Urn urn,
-      @Nullable final Collection<String> requestedAspectNames) {
-    if (requestedAspectNames == null || requestedAspectNames.isEmpty()) {
-      return Set.of();
-    }
-    return requestedAspectNames.stream()
-        .filter(aspectName -> !isAPIAuthorizedAspect(session, READ, urn, aspectName))
-        .collect(Collectors.toCollection(TreeSet::new));
-  }
-
-  /**
-   * Same as {@link #unauthorizedRequestedAspects(AuthorizationSession, Urn, Collection)} across
-   * several urns, for batch endpoints. An aspect is reported if any one of the urns denies it.
-   */
-  public static Set<String> unauthorizedRequestedAspects(
-      @Nonnull final AuthorizationSession session,
-      @Nonnull final Collection<Urn> urns,
-      @Nullable final Collection<String> requestedAspectNames) {
-    return urns.stream()
-        .flatMap(urn -> unauthorizedRequestedAspects(session, urn, requestedAspectNames).stream())
-        .collect(Collectors.toCollection(TreeSet::new));
   }
 
   /**
@@ -553,7 +518,8 @@ public class AuthUtil {
    * <p>{@code EntityService} read methods treat an empty aspect-name set as "fetch every aspect",
    * so a non-empty request whose authorized projection came back empty must never be forwarded to
    * the service -- doing so would return the whole entity, restricted aspects included. Callers
-   * should respond with a 403 (or an empty payload) instead.
+   * must skip those urns instead, leaving them out of the response (or returning an entity with no
+   * aspects), which is what the caller would have seen had none of the requested aspects been set.
    *
    * @param requestedAspectNames what the caller asked for (empty/null = "all aspects")
    * @param authorizedAspectNames the result of {@link #filterAuthorizedAspects} / {@link

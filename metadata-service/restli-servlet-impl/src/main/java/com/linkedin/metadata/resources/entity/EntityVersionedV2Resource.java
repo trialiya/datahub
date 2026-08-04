@@ -5,7 +5,6 @@ import static com.datahub.authorization.AuthUtil.isAPIAuthorized;
 import static com.datahub.authorization.AuthUtil.isAPIAuthorizedEntityUrns;
 import static com.datahub.authorization.AuthUtil.isAPIAuthorizedUrns;
 import static com.datahub.authorization.AuthUtil.isProjectionDenied;
-import static com.datahub.authorization.AuthUtil.unauthorizedRequestedAspects;
 import static com.linkedin.metadata.authorization.ApiGroup.ENTITY;
 import static com.linkedin.metadata.authorization.ApiOperation.READ;
 import static com.linkedin.metadata.resources.restli.RestliConstants.*;
@@ -102,22 +101,11 @@ public class EntityVersionedV2Resource
     }
     return RestliUtils.toTask(systemOperationContext,
         () -> {
-          // An explicitly named restricted aspect the caller cannot read fails the request; a
-          // wildcard projection (aspectNames == null) drops it silently instead.
-          final Set<String> unauthorizedAspects =
-              unauthorizedRequestedAspects(
-                  opContext, urns, aspectNames == null ? null : Arrays.asList(aspectNames));
-          if (!unauthorizedAspects.isEmpty()) {
-            throw new RestLiServiceException(
-                HttpStatus.S_403_FORBIDDEN,
-                "User is unauthorized to get aspects " + unauthorizedAspects + " for: "
-                    + versionedUrnStrs);
-          }
-
           final Set<String> requestedAspects =
               aspectNames == null
                   ? opContext.getEntityAspectNames(entityType)
                   : new HashSet<>(Arrays.asList(aspectNames));
+          // Restricted aspects the caller cannot read are dropped from the projection silently.
           // Aspect restrictions are resource-scoped, so the projection has to be computed per urn
           // rather than once for the entity type -- a resource-scoped policy would never match an
           // entity-type-only check. Urns sharing a projection are fetched together.
@@ -132,19 +120,15 @@ public class EntityVersionedV2Resource
                                   UrnUtils.getUrn(versionedUrn.getUrn()),
                                   requestedAspects)));
 
-          if (versionedUrnsByProjection.keySet().stream()
-              .anyMatch(projection -> isProjectionDenied(requestedAspects, projection))) {
-            // An empty projection would be read as "all aspects" by the entity service.
-            throw new RestLiServiceException(
-                HttpStatus.S_403_FORBIDDEN,
-                "User is unauthorized to get aspects " + requestedAspects + " for: "
-                    + versionedUrnStrs);
-          }
-
           try {
             Map<Urn, EntityResponse> result = new HashMap<>();
             for (Map.Entry<Set<String>, List<com.linkedin.common.urn.VersionedUrn>> entry :
                 versionedUrnsByProjection.entrySet()) {
+              if (isProjectionDenied(requestedAspects, entry.getKey())) {
+                // Nothing readable is left for these urns, so they are simply absent from the
+                // response. An empty projection would be read as "all aspects" downstream.
+                continue;
+              }
               result.putAll(
                   _entityService.getEntitiesVersionedV2(opContext,
                       entry.getValue().stream()
