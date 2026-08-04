@@ -93,15 +93,27 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
               aspectNames == null
                   ? opContext.getEntityAspectNames(entityName)
                   : new HashSet<>(Arrays.asList(aspectNames));
-          final Set<String> projectedAspects =
+          Set<String> projectedAspects =
               AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspects);
           if (AuthUtil.isProjectionDenied(requestedAspects, projectedAspects)) {
-            // Nothing readable is left to return, and an empty projection would be read as "all
-            // aspects" by the entity service -- answer as if the entity had none of them.
-            return new EntityResponse()
-                .setUrn(urn)
-                .setEntityName(entityName)
-                .setAspects(new EnvelopedAspectMap());
+            // Nothing readable is left, and forwarding the empty projection would be read as "all
+            // aspects" by the entity service. Answer exactly as if none of the requested aspects
+            // were set: with alwaysIncludeKeyAspect (the default) that response carries the key
+            // aspect -- the service synthesizes it even when unstored -- so fall back to a
+            // key-aspect projection; without it the response is the entity with no aspects.
+            if (alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect) {
+              projectedAspects =
+                  Set.of(
+                      opContext
+                          .getEntityRegistry()
+                          .getEntitySpec(entityName)
+                          .getKeyAspectName());
+            } else {
+              return new EntityResponse()
+                  .setUrn(urn)
+                  .setEntityName(entityName)
+                  .setAspects(new EnvelopedAspectMap());
+            }
           }
           try {
             return _entityService.getEntityV2(opContext, entityName, urn, projectedAspects, alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect);
@@ -163,20 +175,44 @@ public class EntityV2Resource extends CollectionResourceTaskTemplate<String, Ent
                               AuthUtil.filterAuthorizedAspects(
                                   opContext, READ, urn, requestedAspects)));
           try {
+            boolean includeKeyAspect = alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect;
             Map<Urn, EntityResponse> result = new java.util.HashMap<>();
             for (Map.Entry<Set<String>, List<Urn>> entry : urnsByProjection.entrySet()) {
-              if (AuthUtil.isProjectionDenied(requestedAspects, entry.getKey())) {
-                // Nothing readable is left for these urns, so they are simply absent from the
-                // response. An empty projection would be read as "all aspects" downstream.
-                continue;
+              Set<String> projection = entry.getKey();
+              if (AuthUtil.isProjectionDenied(requestedAspects, projection)) {
+                // Nothing readable is left for these urns, and forwarding the empty projection
+                // would be read as "all aspects" downstream. Answer exactly as if none of the
+                // requested aspects were set: with alwaysIncludeKeyAspect (the default) that
+                // response carries the key aspect -- the service synthesizes it even when
+                // unstored -- so fall back to a key-aspect projection; without it each urn maps
+                // to an entity with no aspects.
+                if (!includeKeyAspect) {
+                  entry
+                      .getValue()
+                      .forEach(
+                          urn ->
+                              result.put(
+                                  urn,
+                                  new EntityResponse()
+                                      .setUrn(urn)
+                                      .setEntityName(entityName)
+                                      .setAspects(new EnvelopedAspectMap())));
+                  continue;
+                }
+                projection =
+                    Set.of(
+                        opContext
+                            .getEntityRegistry()
+                            .getEntitySpec(entityName)
+                            .getKeyAspectName());
               }
               result.putAll(
                   _entityService.getEntitiesV2(
                       opContext,
                       entityName,
                       new HashSet<>(entry.getValue()),
-                      entry.getKey(),
-                      alwaysIncludeKeyAspect == null || alwaysIncludeKeyAspect));
+                      projection,
+                      includeKeyAspect));
             }
             return result;
           } catch (Exception e) {

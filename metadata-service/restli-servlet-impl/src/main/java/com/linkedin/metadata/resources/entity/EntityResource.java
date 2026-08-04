@@ -273,19 +273,31 @@ public class EntityResource extends CollectionResourceTaskTemplate<String, Entit
                   : new HashSet<>(Arrays.asList(aspectNames));
           // Restricted aspects the caller cannot read are dropped from the projection silently.
           // Group urns by their authorized projection (usually a single group, since most entity
-          // types have no restricted aspects and share the same projection).
+          // types have no restricted aspects and share the same projection). A projection with
+          // nothing readable left cannot be forwarded empty (that reads as "all aspects"), so it
+          // falls back to the urn's key aspect, which this endpoint always includes anyway: the
+          // urn appears exactly as it would had none of the requested aspects been set.
           Map<Set<String>, List<Urn>> urnsByProjection =
               urns.stream()
                   .collect(
                       Collectors.groupingBy(
-                          urn ->
-                              AuthUtil.filterAuthorizedProjectedAspects(
-                                  opContext, opContext.getEntityRegistry(), urn, requestedAspects)));
+                          urn -> {
+                            Set<String> projection =
+                                AuthUtil.filterAuthorizedProjectedAspects(
+                                    opContext,
+                                    opContext.getEntityRegistry(),
+                                    urn,
+                                    requestedAspects);
+                            return AuthUtil.isProjectionDenied(requestedAspects, projection)
+                                ? Set.of(
+                                    opContext
+                                        .getEntityRegistry()
+                                        .getEntitySpec(urn.getEntityType())
+                                        .getKeyAspectName())
+                                : projection;
+                          }));
 
           return urnsByProjection.entrySet().stream()
-              // Urns with nothing readable left are absent from the response; passing their empty
-              // projection on would be read as "all aspects" by the entity service.
-              .filter(entry -> !AuthUtil.isProjectionDenied(requestedAspects, entry.getKey()))
               .flatMap(
                   entry ->
                       entityService

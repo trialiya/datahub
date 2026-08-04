@@ -148,23 +148,28 @@ public class EntitiesController {
             : new HashSet<>(Arrays.asList(aspectNames));
     // Restricted aspects the caller cannot read are dropped from the projection silently. Group
     // urns by their authorized projection (usually a single group, since most entity types have no
-    // restricted aspects and share the same projection).
+    // restricted aspects and share the same projection). A projection with nothing readable left
+    // cannot be forwarded empty (that reads as "all aspects"), so it falls back to the key aspect,
+    // which this endpoint always includes anyway: the urn appears exactly as it would had none of
+    // the requested aspects been set.
+    final Set<String> keyAspectProjection =
+        Set.of(opContext.getEntityRegistry().getEntitySpec(entityName).getKeyAspectName());
     Map<Set<String>, List<Urn>> urnsByProjection =
         entityUrns.stream()
             .collect(
                 Collectors.groupingBy(
-                    urn ->
-                        AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspects)));
+                    urn -> {
+                      Set<String> projection =
+                          AuthUtil.filterAuthorizedAspects(opContext, READ, urn, requestedAspects);
+                      return AuthUtil.isProjectionDenied(requestedAspects, projection)
+                          ? keyAspectProjection
+                          : projection;
+                    }));
 
     Throwable exceptionally = null;
     try {
       Map<Urn, com.linkedin.entity.EntityResponse> entityResponses = new HashMap<>();
       for (Map.Entry<Set<String>, List<Urn>> entry : urnsByProjection.entrySet()) {
-        if (AuthUtil.isProjectionDenied(requestedAspects, entry.getKey())) {
-          // Nothing readable is left for these urns, so they are simply absent from the response.
-          // Passing the empty projection on would be read as "all aspects" by the entity service.
-          continue;
-        }
         entityResponses.putAll(
             _entityService.getEntitiesV2(
                 opContext, entityName, new HashSet<>(entry.getValue()), entry.getKey()));

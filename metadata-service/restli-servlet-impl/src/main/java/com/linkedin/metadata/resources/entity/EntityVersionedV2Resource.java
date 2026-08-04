@@ -108,27 +108,33 @@ public class EntityVersionedV2Resource
           // Restricted aspects the caller cannot read are dropped from the projection silently.
           // Aspect restrictions are resource-scoped, so the projection has to be computed per urn
           // rather than once for the entity type -- a resource-scoped policy would never match an
-          // entity-type-only check. Urns sharing a projection are fetched together.
+          // entity-type-only check. Urns sharing a projection are fetched together. A projection
+          // with nothing readable left cannot be forwarded empty (that reads as "all aspects"),
+          // so it falls back to the key aspect, which this endpoint always includes anyway: the
+          // urn appears exactly as it would had none of the requested aspects been set.
+          final Set<String> keyAspectProjection =
+              Set.of(
+                  opContext.getEntityRegistry().getEntitySpec(entityType).getKeyAspectName());
           Map<Set<String>, List<com.linkedin.common.urn.VersionedUrn>> versionedUrnsByProjection =
               versionedUrnStrs.stream()
                   .collect(
                       Collectors.groupingBy(
-                          versionedUrn ->
-                              filterAuthorizedAspects(
-                                  opContext,
-                                  READ,
-                                  UrnUtils.getUrn(versionedUrn.getUrn()),
-                                  requestedAspects)));
+                          versionedUrn -> {
+                            Set<String> projection =
+                                filterAuthorizedAspects(
+                                    opContext,
+                                    READ,
+                                    UrnUtils.getUrn(versionedUrn.getUrn()),
+                                    requestedAspects);
+                            return isProjectionDenied(requestedAspects, projection)
+                                ? keyAspectProjection
+                                : projection;
+                          }));
 
           try {
             Map<Urn, EntityResponse> result = new HashMap<>();
             for (Map.Entry<Set<String>, List<com.linkedin.common.urn.VersionedUrn>> entry :
                 versionedUrnsByProjection.entrySet()) {
-              if (isProjectionDenied(requestedAspects, entry.getKey())) {
-                // Nothing readable is left for these urns, so they are simply absent from the
-                // response. An empty projection would be read as "all aspects" downstream.
-                continue;
-              }
               result.putAll(
                   _entityService.getEntitiesVersionedV2(opContext,
                       entry.getValue().stream()

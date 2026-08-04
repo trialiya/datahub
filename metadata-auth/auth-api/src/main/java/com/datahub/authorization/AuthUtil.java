@@ -518,8 +518,11 @@ public class AuthUtil {
    * <p>{@code EntityService} read methods treat an empty aspect-name set as "fetch every aspect",
    * so a non-empty request whose authorized projection came back empty must never be forwarded to
    * the service -- doing so would return the whole entity, restricted aspects included. Callers
-   * must skip those urns instead, leaving them out of the response (or returning an entity with no
-   * aspects), which is what the caller would have seen had none of the requested aspects been set.
+   * must answer as if none of the requested aspects were set: endpoints that always include the key
+   * aspect fall back to a key-aspect projection (the service synthesizes the key aspect even when
+   * unstored, so an unset aspect still yields the urn with its key aspect), and endpoints that
+   * return only found aspects drop the urn or return it with no aspects -- whichever their response
+   * would have looked like for a caller whose requested aspects simply were not set.
    *
    * @param requestedAspectNames what the caller asked for (empty/null = "all aspects")
    * @param authorizedAspectNames the result of {@link #filterAuthorizedAspects} / {@link
