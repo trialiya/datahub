@@ -1,0 +1,13 @@
+namespace com.linkedin.policy
+
+/**
+ * The relationship whose related entity's owners are matched against the actor. Each symbol must
+ * name a resolvable entity field that yields the related entity's owners directly.
+ */
+enum RelatedEntityOwnerField {
+
+  /**
+   * Owners of the data product(s) that contain the resource as an asset.
+   */
+  DATA_PRODUCT_OWNER
+}

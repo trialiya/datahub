@@ -15,6 +15,7 @@ import com.linkedin.policy.PolicyMatchCondition;
 import com.linkedin.policy.PolicyMatchCriterion;
 import com.linkedin.policy.PolicyMatchCriterionArray;
 import com.linkedin.policy.PolicyMatchFilter;
+import com.linkedin.policy.RelatedEntityOwnerCriterion;
 import io.datahubproject.metadata.context.OperationContext;
 import io.datahubproject.metadata.context.ServicesRegistryContext;
 import java.util.ArrayList;
@@ -27,7 +28,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import lombok.AccessLevel;
@@ -165,6 +165,21 @@ public class PolicyEngine {
         users.addAll(userOwners(owners));
         groups.addAll(groupOwners(owners));
       }
+
+      // 3. Fetch Actors that own an entity related to the resource (e.g. its data product).
+      if (actorFilter.hasRelatedEntityOwners() && resource.isPresent()) {
+        for (RelatedEntityOwnerCriterion criterion :
+            Objects.requireNonNull(actorFilter.getRelatedEntityOwners())) {
+          final EntityFieldType fieldType = toEntityFieldType(criterion);
+          if (fieldType == null) {
+            continue;
+          }
+          Set<Owner> relatedOwners =
+              filterOwners(resource.get().getTypedValues(fieldType), criterion.getOwnershipTypes());
+          users.addAll(userOwners(relatedOwners));
+          groups.addAll(groupOwners(relatedOwners));
+        }
+      }
     }
     return new PolicyActors(users, groups, roles, allUsers, allGroups);
   }
@@ -201,20 +216,22 @@ public class PolicyEngine {
       return evaluateResourceScope(policy, resource, subResources);
     }
 
-    if (!actorFilter.isResourceOwners()) {
+    if (!actorFilter.isResourceOwners() && !actorFilter.hasRelatedEntityOwners()) {
       return new PolicyEvaluationResult(policy.getDisplayName(), false, "Actor did not match");
     }
 
-    // Resource ownership is the only actor predicate that needs the resource. Resolve the resource
-    // scope first so a non-matching resource short-circuits before the ownership lookup, keeping
-    // ownership policies exactly as cheap as the original ordering.
+    // Ownership -- of the resource itself or of a related entity -- is the only actor predicate
+    // that needs the resource. Resolve the resource scope first so a non-matching resource
+    // short-circuits before the ownership lookup, keeping ownership policies exactly as cheap as
+    // the original ordering.
     final PolicyEvaluationResult resourceResult =
         evaluateResourceScope(policy, resource, subResources);
     if (!resourceResult.isGranted()) {
       return resourceResult;
     }
 
-    if (isOwnerMatch(opContext, resolvedActorSpec, actorFilter, resource, context)) {
+    if (isOwnerMatch(opContext, resolvedActorSpec, actorFilter, resource, context)
+        || isRelatedEntityOwnerMatch(resolvedActorSpec, actorFilter, resource, context)) {
       return new PolicyEvaluationResult(policy.getDisplayName(), true, "Policy is applicable");
     }
     return new PolicyEvaluationResult(policy.getDisplayName(), false, "Actor did not match");
@@ -427,7 +444,13 @@ public class PolicyEngine {
       return true;
     }
 
-    // 4. If the actor is in a matching "Role" in the actor filter, return true immediately.
+    // 4. If the actor owns an entity related to the resource (e.g. its data product), return true
+    // immediately.
+    if (isRelatedEntityOwnerMatch(resolvedActorSpec, actorFilter, resourceSpec, context)) {
+      return true;
+    }
+
+    // 5. If the actor is in a matching "Role" in the actor filter, return true immediately.
     return isRoleMatch(opContext, resolvedActorSpec, actorFilter, context);
   }
 
@@ -474,15 +497,82 @@ public class PolicyEngine {
         opContext, resolvedActorSpec, requestResource.get(), ownershipTypes, context);
   }
 
+  /**
+   * Returns true if the actor owns an entity related to the resource -- currently the data
+   * product(s) containing it -- with one of the ownership types named on the criterion.
+   *
+   * <p>The related entity's owners arrive already resolved as a field of the resource itself (see
+   * {@link EntityFieldType#DATA_PRODUCT_OWNER}), so no intermediate entity spec is resolved here
+   * and the lookup stays memoized alongside every other field of the resource.
+   */
+  private boolean isRelatedEntityOwnerMatch(
+      final ResolvedEntitySpec resolvedActorSpec,
+      final DataHubActorFilter actorFilter,
+      final Optional<ResolvedEntitySpec> requestResource,
+      final PolicyEvaluationContext context) {
+    if (!actorFilter.hasRelatedEntityOwners() || requestResource.isEmpty()) {
+      return false;
+    }
+    final ResolvedEntitySpec resourceSpec = requestResource.get();
+    if (resourceSpec.getSpec().getEntity().isEmpty()) {
+      return false;
+    }
+
+    for (RelatedEntityOwnerCriterion criterion :
+        Objects.requireNonNull(actorFilter.getRelatedEntityOwners())) {
+      final EntityFieldType fieldType = toEntityFieldType(criterion);
+      if (fieldType == null) {
+        continue;
+      }
+
+      final Set<String> owners =
+          filterOwnersByType(
+              resourceSpec.<Owner>getTypedValues(fieldType), criterion.getOwnershipTypes());
+      if (matchesOwners(resolvedActorSpec, owners, context)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Maps the criterion's relationship onto the entity field that carries the related entity's
+   * owners. Returns null for a symbol this build does not know how to resolve -- e.g. {@code
+   * $UNKNOWN}, which a policy written against a newer model deserializes to.
+   */
+  @Nullable
+  private EntityFieldType toEntityFieldType(final RelatedEntityOwnerCriterion criterion) {
+    try {
+      return EntityFieldType.valueOf(criterion.getRelationshipField().name());
+    } catch (IllegalArgumentException e) {
+      log.error("Unsupported related entity owner field {}", criterion.getRelationshipField());
+      return null;
+    }
+  }
+
   private Set<String> getOwnersForType(ResolvedEntitySpec resourceSpec, List<Urn> ownershipTypes) {
     if (resourceSpec.getSpec().getEntity().isEmpty()) {
       return Set.of();
     }
-    Stream<Owner> ownersStream = resourceSpec.<Owner>getTypedValues(EntityFieldType.OWNER).stream();
-    if (ownershipTypes != null) {
-      ownersStream = ownersStream.filter(owner -> ownershipTypes.contains(owner.getTypeUrn()));
+    return filterOwnersByType(
+        resourceSpec.<Owner>getTypedValues(EntityFieldType.OWNER), ownershipTypes);
+  }
+
+  private Set<String> filterOwnersByType(
+      final Set<Owner> owners, @Nullable final List<Urn> ownershipTypes) {
+    return filterOwners(owners, ownershipTypes).stream()
+        .map(owner -> owner.getOwner().toString())
+        .collect(Collectors.toSet());
+  }
+
+  private Set<Owner> filterOwners(
+      final Set<Owner> owners, @Nullable final List<Urn> ownershipTypes) {
+    if (ownershipTypes == null) {
+      return owners;
     }
-    return ownersStream.map(owner -> owner.getOwner().toString()).collect(Collectors.toSet());
+    return owners.stream()
+        .filter(owner -> ownershipTypes.contains(owner.getTypeUrn()))
+        .collect(Collectors.toSet());
   }
 
   private boolean isActorOwner(
@@ -491,13 +581,22 @@ public class PolicyEngine {
       ResolvedEntitySpec resourceSpec,
       List<Urn> ownershipTypes,
       PolicyEvaluationContext context) {
-    Set<String> owners = this.getOwnersForType(resourceSpec, ownershipTypes);
+    return matchesOwners(
+        resolvedActorSpec, this.getOwnersForType(resourceSpec, ownershipTypes), context);
+  }
+
+  /** True if the actor is among the owner urns, either directly or via one of its groups. */
+  private boolean matchesOwners(
+      final ResolvedEntitySpec resolvedActorSpec,
+      final Set<String> owners,
+      final PolicyEvaluationContext context) {
+    if (owners.isEmpty()) {
+      return false;
+    }
     if (isUserOwner(resolvedActorSpec, owners)) {
       return true;
     }
-    final Set<String> groups = resolveGroups(resolvedActorSpec, context);
-
-    return isGroupOwner(groups, owners);
+    return isGroupOwner(resolveGroups(resolvedActorSpec, context), owners);
   }
 
   private boolean isUserOwner(final ResolvedEntitySpec resolvedActorSpec, Set<String> owners) {

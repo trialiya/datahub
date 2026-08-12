@@ -1,0 +1,23 @@
+namespace com.linkedin.policy
+
+import com.linkedin.common.Urn
+
+/**
+ * Grants a policy to the owners of an entity related to the resource, rather than to the owners of
+ * the resource itself. This lets a privilege be inherited through a relationship (for example, the
+ * owners of the data product that contains a dataset) without minting a policy per user.
+ */
+record RelatedEntityOwnerCriterion {
+
+  /**
+   * The relationship whose related entity's owners are matched against the actor. Resolved by a
+   * field resolver that walks the relationship and returns the related entity's owners directly.
+   */
+  relationshipField: RelatedEntityOwnerField
+
+  /**
+   * Restricts the match to owners holding one of these ownership types. When empty, any ownership
+   * type on the related entity matches.
+   */
+  ownershipTypes: optional array[Urn]
+}

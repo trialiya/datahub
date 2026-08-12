@@ -35,4 +35,11 @@ public enum EntityFieldType {
   CONTAINER,
   /** Glossary terms/nodes associated with the entity */
   GLOSSARY,
+  /**
+   * Owners of the data product(s) that contain the entity as an asset.
+   *
+   * <p>Resolved by a single provider that performs the reverse graph lookup and the ownership fetch
+   * together, so consumers never have to resolve the intermediate data product entities themselves.
+   */
+  DATA_PRODUCT_OWNER,
 }
