@@ -165,6 +165,17 @@ Each Python module has a gradle setup similar to `metadata-ingestion/` (document
 - **Register as Spring beans** in `SpringStandardPluginConfiguration.java`
 - **Follow existing patterns**: See `SystemPolicyValidator.java` and `PolicyFieldTypeValidator.java` as examples
 
+### Authorization Architecture
+
+When adding an entity or API:
+
+- Enforce authorization across GraphQL, OpenAPI, and Rest.li
+- Keep basic entity CRUD permissions alongside any higher-level, entity-specific permissions
+- Use `AuthorizationUtils` for GraphQL and `AuthUtil.isAPIAuthorized*` for REST APIs
+- Put shared aspect rules in an `AbstractAspectAuthorizationValidator`
+- Apply view-based access controls by default; only set `viewUnrestricted: true` for intentionally public entities
+- Add allowed and denied access tests
+
 ## Development Flow
 
 1. **Schema changes** in `metadata-models/` trigger code generation across all languages
@@ -727,7 +738,8 @@ Cypress UI tests in `smoke-test/tests/cypress/` are **deprecated as of 2026-06-3
 
 - **Do not write new Cypress tests.** All new UI automation must use Playwright (see below).
 - **Do not fix failing Cypress tests.** Migrate them to Playwright instead.
-- The Cypress test code is retained temporarily for reference; all CI jobs running Cypress have been removed.
+- The Cypress test code is retained temporarily for reference during the Playwright migration.
+- CI infrastructure for Cypress is deprecated in OSS; avoid adding new Cypress Gradle/workflow/retry/hook orchestration and continue migration to Playwright.
 
 ## Playwright UI E2E Tests
 
