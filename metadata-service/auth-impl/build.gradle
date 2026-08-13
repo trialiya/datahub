@@ -21,6 +21,10 @@ dependencies {
   runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.2',
       'io.jsonwebtoken:jjwt-jackson:0.11.2'
 
+  // Upstream picks this up transitively; declared explicitly here because this branch is based on
+  // an older tree where nothing on the auth-impl compile classpath pulls collections4 in.
+  implementation 'org.apache.commons:commons-collections4:4.5.0'
+
   implementation externalDependency.slf4jApi
   compileOnly externalDependency.lombok
 
