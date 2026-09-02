@@ -64,6 +64,7 @@ import com.linkedin.metadata.entity.restoreindices.RestoreIndicesArgs;
 import com.linkedin.metadata.entity.restoreindices.RestoreIndicesResult;
 import com.linkedin.metadata.entity.retention.BulkApplyRetentionArgs;
 import com.linkedin.metadata.entity.retention.BulkApplyRetentionResult;
+import com.linkedin.metadata.entity.validation.ValidationApiUtils;
 import com.linkedin.metadata.entity.validation.ValidationException;
 import com.linkedin.metadata.event.EventProducer;
 import com.linkedin.metadata.models.AspectSpec;
@@ -2054,7 +2055,8 @@ public class EntityServiceImpl implements EntityService<ChangeItemImpl> {
       AuditStamp auditStamp,
       AspectSpec aspectSpec) {
     boolean isNoOp =
-        SystemMetadataUtils.isNoOp(newSystemMetadata) || Objects.equals(oldAspect, newAspect);
+        SystemMetadataUtils.isNoOp(newSystemMetadata)
+            || ValidationApiUtils.normalizedEqual(oldAspect, newAspect);
     if (!isNoOp || alwaysEmitChangeLog || shouldAspectEmitChangeLog(aspectSpec)) {
       log.info("Producing MCL for ingested aspect {}, urn {}", aspectSpec.getName(), entityUrn);
 
