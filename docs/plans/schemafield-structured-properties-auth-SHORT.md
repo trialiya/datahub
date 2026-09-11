@@ -61,3 +61,5 @@ OpenAPI (`POST /openapi/v3/entity/schemaField`, `.../aspect/structuredProperties
 - `PoliciesConfig` — большой файл, много добавлений в master; конфликт при вставке таблицы вероятен, разрешение тривиально.
 
 Подробности — в `schemafield-structured-properties-auth-DETAILED.md`.
+Упрощённый вариант только с шагом 2 (schemaField → родитель, без `ASPECT_PRIVILEGES`; достаточно `EDIT_ENTITY` на датасет) —
+в `schemafield-structured-properties-auth-MINIMAL.md`.
