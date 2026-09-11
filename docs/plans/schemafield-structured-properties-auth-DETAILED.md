@@ -48,53 +48,61 @@ AuthUtil.isAPIAuthorizedEntityUrnsWithAspect(session, op, urn, aspectName)   (:4
 потребитель — `datahub-graphql-core/.../AuthorizationUtils.canEditProperties` (:154). Следствие: даже на самом
 датасете (не колонке) «Edit Dataset Properties» через OpenAPI не даёт ничего. Требуется `EDIT_ENTITY`.
 
-### 2.2. schemaField — отдельный ресурс для PolicyEngine
+### 2.2. Проблема 2.1 общая для всех аспектов и сущностей
 
-`DataHubAuthorizer.authorize()` → `DefaultEntitySpecResolver.resolve(EntitySpec("schemaField", "urn:li:schemaField:(…)"))`
-→ `PolicyEngine.isResourceMatch` (:184) → `getFilter` (:208) → `checkFilter` (:232):
+`EDIT_ENTITY_PROPERTIES` — не исключение. Ни одна fine-grained привилегия не участвует в OpenAPI-решении:
 
-```java
-return filter.getCriteria().stream().allMatch(criterion -> checkCriterion(criterion, resource));
-```
+| Аспект | GraphQL проверяет | OpenAPI требует |
+|--------|-------------------|-----------------|
+| `globalTags` | `EDIT_ENTITY_TAGS` | `EDIT_ENTITY` |
+| `glossaryTerms` | `EDIT_ENTITY_GLOSSARY_TERMS` | `EDIT_ENTITY` |
+| `ownership` | `EDIT_ENTITY_OWNERS` | `EDIT_ENTITY` |
+| `domains` | `EDIT_ENTITY_DOMAINS` | `EDIT_ENTITY` |
+| `editableDatasetProperties` и др. `editable*` | `EDIT_ENTITY_DOCS` | `EDIT_ENTITY` |
+| `institutionalMemory` | `EDIT_ENTITY_DOC_LINKS` | `EDIT_ENTITY` |
+| `deprecation` | `EDIT_ENTITY_DEPRECATION` | `EDIT_ENTITY` |
+| `status` | `EDIT_ENTITY_STATUS` | `EDIT_ENTITY` |
+| `dataProducts` | `EDIT_ENTITY_DATA_PRODUCTS` | `EDIT_ENTITY` |
+| `structuredProperties` | `EDIT_ENTITY_PROPERTIES` | `EDIT_ENTITY` |
+| `embed` | `EDIT_ENTITY_EMBED` | `EDIT_ENTITY` |
+| `upstreamLineage` (dataset) | `EDIT_LINEAGE` | `EDIT_LINEAGE ∨ EDIT_ENTITY` — **только это** закрыто нашим `RESTRICTED_ASPECT_PRIVILEGES` |
 
-UI политик всегда пишет **оба** критерия (`datahub-web-react/src/app/permissions/policy/policyUtils.ts:103-108`):
+Точечная запись `structuredProperties` в `RESTRICTED_ASPECT_PRIVILEGES` закрыла бы одну строку из двенадцати.
 
-```ts
-if (resourceFilter.type)      criteria.push(createCriterion('TYPE', [createCriterionValue(resourceFilter.type)]));
-if (resourceFilter.resources) criteria.push(createCriterion('URN',  resourceFilter.resources.map(createCriterionValue)));
-```
+### 2.3. schemaField — sub-resource датасета, а не ресурс политики
 
-Значения полей ресурса берутся из провайдеров (`DefaultEntitySpecResolver`):
+В модели авторизации DataHub колонка **не является самостоятельным ресурсом**. GraphQL авторизует колоночные правки
+на URN **родительского датасета** с отдельными колоночными привилегиями:
 
-| Провайдер | Поле | Что возвращает для schemaField |
-|-----------|------|--------------------------------|
-| `EntityTypeFieldResolverProvider` | TYPE | `{"schemaField"}` — не равно `dataset` |
-| `EntityUrnFieldResolverProvider` | URN | `{"urn:li:schemaField:(…)"}` — не равно `urn:li:dataset:(…)` |
-| `OwnerFieldResolverProvider` | OWNER | `ownership` самой колонки — обычно пусто |
-| `DomainFieldResolverProvider` | DOMAIN | `domains` самой колонки — пусто |
-| `TagFieldResolverProvider` | TAG | `globalTags` колонки (может быть, но редко) |
+| Операция | Где | Ресурс проверки | Привилегия |
+|----------|-----|-----------------|------------|
+| теги на колонку | `LabelUtils.isAuthorizedToUpdateTags:236` | `targetUrn` = датасет, `subResource` = fieldPath | `EDIT_DATASET_COL_TAGS` |
+| термины на колонку | `LabelUtils.isAuthorizedToUpdateTerms:257` | датасет | `EDIT_DATASET_COL_GLOSSARY_TERMS` |
+| описание колонки | `DescriptionUtils.isAuthorizedToUpdateFieldDescription:328` | датасет | `EDIT_DATASET_COL_DESCRIPTION` |
+| business attribute | `BusinessAttributeAuthorizationUtils:51` | датасет | `EDIT_DATASET_COL_BUSINESS_ATTRIBUTE` |
+| **structuredProperties на колонку** | `UpsertStructuredPropertiesResolver:69` → `canEditProperties(assetUrn)` | **`urn:li:schemaField:(…)`** | `EDIT_ENTITY_PROPERTIES` |
 
-Ни один провайдер не выводит родительский датасет из URN. Политика на датасет не матчится по обоим критериям.
-Owner-based и domain-based политики — тоже мимо.
+Последняя строка — единственное место, где GraphQL авторизует колонку по её собственному URN. Это
+непоследовательность upstream (резолвер писался для «любого asset URN» и про схему не думал), и именно она даёт
+403 в GraphQL. Именно поэтому `schemaField` намеренно отсутствует в `ENTITY_RESOURCE_PRIVILEGES`: ему не положено
+быть целью политики, политика вешается на датасет.
 
-`PolicyEngine.java` (577 строк) прочитан целиком: schemaField-специфичной логики нет ни в `isResourceMatch`,
-ни в `checkCriterion` (:236), ни в `checkCondition` (:252, только `EQUALS` / `STARTS_WITH`).
+OpenAPI делает то же, что `UpsertStructuredPropertiesResolver`, только для **всех** аспектов schemaField:
+`EntitySpec("schemaField", "urn:li:schemaField:(…)")` → `PolicyEngine.checkFilter` (`allMatch` по `TYPE`, `URN`) →
+политика на датасет не совпадает ни по типу, ни по URN.
 
-### 2.3. schemaField нельзя выбрать в UI
-
-`PoliciesConfig.ENTITY_RESOURCE_PRIVILEGES` (:822) — 20 записей, `schemaField` нет. Дропдаун «Resource Type»
-строится из этого списка. Политику на schemaField можно создать только через GraphQL/OpenAPI, вручную задав
-`resources.filter.criteria`.
+`PolicyEngine.java` (577 строк) прочитан целиком: schemaField-специфичной логики нет ни в `isResourceMatch` (:184),
+ни в `checkCriterion` (:236), ни в `checkCondition` (:252). Это ожидаемо: при sub-resource-модели она там и не нужна —
+remap на родителя должен происходить **до** PolicyEngine, в вызывающем коде.
 
 ### 2.4. Итог
 
-| Слой | Ломает GraphQL? | Ломает OpenAPI? |
-|------|-----------------|-----------------|
-| 2.1 нет aspect→privilege | нет | **да** |
-| 2.2 нет наследования scope | **да** | **да** |
-| 2.3 нет в UI | косвенно | косвенно |
+| Слой | Ломает GraphQL? | Ломает OpenAPI? | Область |
+|------|-----------------|-----------------|---------|
+| 2.1/2.2 нет aspect→privilege | нет | **да** | все сущности, все аспекты |
+| 2.3 schemaField авторизуется по своему URN | только structuredProperties | **да, все аспекты** | schemaField |
 
-Правки 2.1 и 2.2 ортогональны; без любой из них OpenAPI-сценарий остаётся 403.
+Правки ортогональны; без любой из них OpenAPI-сценарий остаётся 403.
 
 ---
 
@@ -132,178 +140,161 @@ Owner-based и domain-based политики — тоже мимо.
   `resolve(entitySpec, opContext)`, импорт провайдеров — wildcard.
 
 Прецедент upstream для «наследования от родителя» — **новый EntityFieldType + новый провайдер**, а не
-расширение семантики `URN`/`TYPE`.
+расширение семантики `URN`/`TYPE`. Для колонок же upstream использует другую модель — sub-resource
+(`subResources` + `privilegeConstraints` в `PolicyEngine`, в GraphQL — `EDIT_DATASET_COL_*` на родителе), что и
+определяет выбор в § 4.2.
 
 ---
 
 ## 4. План реализации
 
-### 4.1. Шаг 1 — `structuredProperties` в `RESTRICTED_ASPECT_PRIVILEGES`
+### 4.1. Шаг 1 — общая таблица аспект → привилегии (`ASPECT_PRIVILEGES`)
 
-Файл: `metadata-utils/.../PoliciesConfig.java` (~:1161).
+Файл: `metadata-utils/.../PoliciesConfig.java`, рядом с `RESTRICTED_ASPECT_PRIVILEGES`.
 
 ```java
-// dataset
-STRUCTURED_PROPERTIES_ASPECT_NAME → {
-    READ:   API_PRIVILEGE_MAP ENTITY READ  (не ограничивать чтение),
-    CREATE: Disjunctive(EDIT_ENTITY_PROPERTIES ∨ EDIT_ENTITY),
-    UPDATE: Disjunctive(EDIT_ENTITY_PROPERTIES ∨ EDIT_ENTITY),
-    DELETE: Disjunctive(EDIT_ENTITY_PROPERTIES ∨ DELETE_ENTITY ∨ EDIT_ENTITY)
-}
-// schemaField — то же самое
+/** Entity-agnostic aspect-level privileges. Entity-specific overrides live in RESTRICTED_ASPECT_PRIVILEGES. */
+public static final Map<String, Map<ApiOperation, Disjunctive<Conjunctive<Privilege>>>> ASPECT_PRIVILEGES =
+    ImmutableMap.<String, ...>builder()
+        .put(GLOBAL_TAGS_ASPECT_NAME,              edit(EDIT_ENTITY_TAGS_PRIVILEGE))
+        .put(GLOSSARY_TERMS_ASPECT_NAME,           edit(EDIT_ENTITY_GLOSSARY_TERMS_PRIVILEGE))
+        .put(OWNERSHIP_ASPECT_NAME,                edit(EDIT_ENTITY_OWNERS_PRIVILEGE))
+        .put(DOMAINS_ASPECT_NAME,                  edit(EDIT_ENTITY_DOMAINS_PRIVILEGE))
+        .put(STRUCTURED_PROPERTIES_ASPECT_NAME,    edit(EDIT_ENTITY_PROPERTIES_PRIVILEGE))
+        .put(INSTITUTIONAL_MEMORY_ASPECT_NAME,     edit(EDIT_ENTITY_DOC_LINKS_PRIVILEGE))
+        .put(DEPRECATION_ASPECT_NAME,              edit(EDIT_ENTITY_DEPRECATION_PRIVILEGE))
+        .put(STATUS_ASPECT_NAME,                   edit(EDIT_ENTITY_STATUS_PRIVILEGE))
+        .put(DATA_PRODUCTS_ASPECT_NAME,            edit(EDIT_ENTITY_DATA_PRODUCTS_PRIVILEGE))
+        .put(EMBED_ASPECT_NAME,                    edit(EDIT_ENTITY_EMBED_PRIVILEGE))
+        .put(EDITABLE_DATASET_PROPERTIES_ASPECT_NAME, edit(EDIT_ENTITY_DOCS_PRIVILEGE))
+        // + остальные editable*Properties (chart, dashboard, dataFlow, dataJob, container, mlModel…)
+        .build();
+
+// edit(p): READ → как ENTITY READ; CREATE/UPDATE → p ∨ EDIT_ENTITY; DELETE → p ∨ EDIT_ENTITY ∨ DELETE_ENTITY
 ```
+
+Порядок поиска в `AuthUtil.isAPIAuthorizedEntityUrnsWithAspect`:
+1. `RESTRICTED_ASPECT_PRIVILEGES[entityType][aspect]` — per-entity override (как сейчас);
+2. `ASPECT_PRIVILEGES[aspect]` — новый default;
+3. иначе — entity-level `lookupEntityAPIPrivilege` (как сейчас).
 
 Нюансы:
-- `RESTRICTED_ASPECT_PRIVILEGES` **переопределяет**, а не AND-ит entity-привилегии → `EDIT_ENTITY` нужно явно
-  включить в дизъюнкцию, иначе «Edit All» перестанет давать право на structuredProperties.
-- `READ` для structuredProperties ограничивать не нужно, но `filterAuthorizedAspects`/`isProjectionDenied`
-  (fork, коммит #8) отфильтруют аспект на multi-aspect чтении, если READ будет задан. Задать READ = обычный
-  `VIEW_ENTITY_PAGE`-эквивалент из `API_PRIVILEGE_MAP`, чтобы не изменить поведение чтения.
-- `createEntity` (:670): item с restricted-аспектом проверяется per-aspect, остальные — через
-  `isAPIAuthorizedEntityType(CREATE, entityName)`. Для батча `schemaField` с одним аспектом
-  `structuredProperties` `hasUnrestrictedAspects == false` → entity-level проверка не сработает. Это ожидаемо.
-- Тесты: `AuthUtilTest` — случаи `(dataset|schemaField, structuredProperties, CREATE|UPDATE|DELETE)` ×
-  `{EDIT_ENTITY_PROPERTIES, EDIT_ENTITY, ничего}`; `GenericEntitiesControllerTest` — 403/200.
+- `EDIT_ENTITY` обязательно в дизъюнкции — таблица **переопределяет**, а не AND-ит entity-привилегии.
+- `READ` не сужать: `filterAuthorizedAspects` / `isProjectionDenied` (коммит #8) фильтруют аспекты на multi-aspect
+  чтении по этой же таблице. Для `ASPECT_PRIVILEGES` READ = обычный ENTITY READ, и/или `filterAuthorizedAspects`
+  смотрит только в `RESTRICTED_ASPECT_PRIVILEGES`. Второе проще и безопаснее.
+- `isRestrictedAspect(entityType, aspect)` в `GenericEntitiesController.createEntity` (:670) сейчас управляет
+  split-ом батча. Переименовать в `hasAspectPrivileges` и учитывать обе таблицы, иначе item с `globalTags`
+  по-прежнему пойдёт через entity-level `isAPIAuthorizedEntityType(CREATE)`.
+- Rest.li (`AspectResource`, `EntityResource`) идёт через те же `AuthUtil` методы — проверить, что таблица
+  применяется и там, чтобы OpenAPI и Rest.li не разошлись.
+- Тесты: `AuthUtilTest` — матрица `(аспект) × (fine-grained, EDIT_ENTITY, ничего) × (CREATE, UPDATE, DELETE)`;
+  `GenericEntitiesControllerTest`; `AspectResourceTest`.
 
-Результат: «Edit Dataset Properties» на **датасет** начинает работать через OpenAPI для самого датасета.
-Для колонок — ещё нет (§ 2.2).
+### 4.2. Шаг 2 — schemaField как sub-resource в `AuthUtil`
 
-### 4.2. Шаг 2 — наследование scope родителя для schemaField (за флагом)
-
-Флаг: `authorization.schemaField.inheritParentScope` (`application.yaml`, env
-`AUTHORIZATION_SCHEMA_FIELD_INHERIT_PARENT_SCOPE`, default `false`). Пробрасывается в
-`DefaultEntitySpecResolver` через `AuthorizerConfiguration`/`DataHubAuthorizerFactory`.
-
-**Почему нельзя «просто добавить провайдер»:**
+Ровно та модель, что в GraphQL: цель `urn:li:schemaField:(P, path)` → авторизовать `P` с колоночной привилегией.
 
 ```java
-// DefaultEntitySpecResolver.getFieldResolvers
-return _entityFieldResolverProviders.stream()
-    .flatMap(r -> r.getFieldTypes().stream().map(ft -> Pair.of(ft, r)))
-    .collect(Collectors.toMap(Pair::getKey, p -> p.getValue().getFieldResolver(opContext, entitySpec)));
+// AuthUtil
+static EntitySpec authorizationTarget(Urn urn) {
+  if (SCHEMA_FIELD_ENTITY_NAME.equals(urn.getEntityType())) {
+    Urn parent = SchemaFieldUrn.createFromUrn(urn).getParentEntity();   // из URN, без I/O
+    return new EntitySpec(parent.getEntityType(), parent.toString());
+  }
+  return new EntitySpec(urn.getEntityType(), urn.toString());
+}
 ```
 
-`Collectors.toMap` без merge-функции → второй провайдер, объявляющий `URN` или `TYPE`, роняет GMS на старте
-`IllegalStateException: Duplicate key`. Единственные варианты: (а) править существующие провайдеры in-place,
-(б) поменять `toMap` на merge и делать union множеств. Вариант (б) чище и ближе к «добавить провайдер», но
-это правка в `DefaultEntitySpecResolver`, который в master сильно переписан (§ 5.1).
+Таблица `SCHEMA_FIELD_ASPECT_PRIVILEGES` (применяется вместо `ASPECT_PRIVILEGES`, когда цель — schemaField):
 
-Изменения:
+| Аспект schemaField | CREATE/UPDATE | Аналог в GraphQL |
+|--------------------|---------------|------------------|
+| `globalTags` | `EDIT_DATASET_COL_TAGS ∨ EDIT_ENTITY` | `LabelUtils.isAuthorizedToUpdateTags` |
+| `glossaryTerms` | `EDIT_DATASET_COL_GLOSSARY_TERMS ∨ EDIT_ENTITY` | `LabelUtils.isAuthorizedToUpdateTerms` |
+| `documentation` | `EDIT_DATASET_COL_DESCRIPTION ∨ EDIT_ENTITY` | `DescriptionUtils.isAuthorizedToUpdateFieldDescription` |
+| `businessAttributes` | `EDIT_DATASET_COL_BUSINESS_ATTRIBUTE ∨ EDIT_ENTITY` | `BusinessAttributeAuthorizationUtils` |
+| `structuredProperties` | `EDIT_ENTITY_PROPERTIES ∨ EDIT_ENTITY` (нет `COL_*`-привилегии; вводить новую — только если реально нужна раздельная выдача) | — |
+| `status`, `deprecation` | `EDIT_ENTITY_STATUS/DEPRECATION ∨ EDIT_ENTITY` | — |
+| прочее (`schemaFieldKey`, `schemaFieldAliases`…) | `EDIT_ENTITY` родителя | — |
 
-| Файл | Изменение |
-|------|-----------|
-| `SchemaFieldUrnUtils` (новый, `metadata-utils`) | `Optional<Urn> parentUrn(Urn schemaFieldUrn)` — парсинг `urn:li:schemaField:(<parent>,<path>)` через `SchemaFieldUrn.createFromUrn(...).getParentEntity()`. Без I/O. |
-| `EntityUrnFieldResolverProvider` | если `entitySpec.getType() == "schemaField"` и флаг → `{selfUrn, parentUrn}` |
-| `EntityTypeFieldResolverProvider` | аналогично → `{"schemaField", parentUrn.getEntityType()}` |
-| `OwnerFieldResolverProvider`, `DomainFieldResolverProvider` | если аспект у колонки пуст и флаг → запросить у родителя (тут уже I/O: `entityClient.getV2(parentUrn)`) |
-| `DefaultEntitySpecResolver` | принять флаг, передать в провайдеры |
-| `application.yaml`, `AuthorizerConfiguration` | флаг |
-| `PolicyEngineTest`, `DefaultEntitySpecResolverTest`, `*FieldResolverProviderTest` | тесты с флагом on/off |
+Где применяется:
+- `AuthUtil.isAPIAuthorizedEntityUrnsWithAspect`, `isAPIAuthorizedEntityUrns`, `isAPIAuthorizedUrns` — все места,
+  где из `Urn` строится `EntitySpec`. Централизовать в `authorizationTarget(urn)` / `buildEntitySpec(urn)`.
+- `GenericEntitiesController.createEntity` (:670): `isAPIAuthorizedEntityType(CREATE, "schemaField")` →
+  для schemaField проверять родителя per-item (тип-only проверка для schemaField не имеет смысла).
+- **GraphQL**: `UpsertStructuredPropertiesResolver:69` → `canEditProperties(parentOf(assetUrn))`; `canEditProperties`
+  сам может делать remap, тогда и `RemoveStructuredPropertiesResolver` починится автоматически.
+- READ на schemaField: сейчас `VIEW_ENTITY_PAGE` на самой колонке — тоже мимо политик на датасет. Remap чинит и это.
 
-Обоснование расширения `TYPE`: без него (`allMatch` + UI всегда пишет `TYPE`) расширение `URN` бесполезно.
+Не трогаем: `PolicyEngine`, `DefaultEntitySpecResolver`, `*FieldResolverProvider`, `EntityFieldType`, UI политик.
 
-Побочный эффект (почему флаг): политика «все датасеты → X» при включённом флаге начинает покрывать все
-колонки для **всех** привилегий, включая `DELETE_ENTITY`. `STARTS_WITH`-политики на датасет тоже
-расширяются. Для большинства инсталляций это желаемое поведение (колонка — часть датасета), но включать
-по умолчанию нельзя.
+Отвергнутый вариант — наследование scope в `EntityUrn/TypeFieldResolverProvider` (возвращать `{self, parent}` для
+URN и `{"schemaField","dataset"}` для TYPE): технически возможно (родитель парсится из URN; «добавить» провайдер
+нельзя из-за `Collectors.toMap` в `DefaultEntitySpecResolver.getFieldResolvers`, только править существующие), но
+(а) расширяет **все** существующие политики на все привилегии, (б) требует флага, (в) противоречит sub-resource-модели
+upstream, (г) ломается на `NOT_EQUALS` из master. Sub-resource remap в `AuthUtil` даёт тот же эффект без этих проблем.
 
-### 4.3. Шаг 3 — `SCHEMA_FIELD_PRIVILEGES` в `ENTITY_RESOURCE_PRIVILEGES`
-
-```java
-public static final ResourcePrivileges SCHEMA_FIELD_PRIVILEGES =
-    ResourcePrivileges.of("schemaField", "Schema Fields", "Schema fields (columns) of datasets",
-        ImmutableList.of(VIEW_ENTITY_PAGE_PRIVILEGE, EDIT_ENTITY_TAGS_PRIVILEGE, EDIT_ENTITY_GLOSSARY_TERMS_PRIVILEGE,
-                         EDIT_ENTITY_PROPERTIES_PRIVILEGE, EDIT_ENTITY_DOCS_PRIVILEGE, EDIT_ENTITY_PRIVILEGE));
-```
-
-UI подхватит автоматически (список приходит из `listPolicies`/`PolicyBuilder`). Проверить
-`datahub-web-react/.../policy/policyUtils.ts` — нет ли захардкоженного списка иконок/лейблов по типу.
-
-### 4.4. Шаг 4 — портировать фикс `PolicyEngine.getFilter` из master
+### 4.3. Шаг 3 — портировать фикс `PolicyEngine.getFilter` из master
 
 Наш `getFilter` добавляет URN-критерий только при `hasType() && hasResources() && !isAllResources()`.
 Legacy-политика с `resources`, но без `type`, теряет ограничение по URN и превращается в «все ресурсы».
 В master условие `hasResources() && !isAllResources()`. Отдельный коммит, отдельный тест в `PolicyEngineTest`.
 
-### 4.5. Порядок и коммиты
+### 4.4. Порядок и коммиты
 
-1. `fix(auth): honor EDIT_ENTITY_PROPERTIES for structuredProperties writes via OpenAPI` — § 4.1
-2. `fix(auth): port getFilter URN criterion fix from upstream` — § 4.4
-3. `feat(auth): schemaField inherits parent dataset scope in policy matching (flagged)` — § 4.2
-4. `feat(auth): expose schemaField as policy resource type` — § 4.3
+1. `fix(auth): port getFilter URN criterion fix from upstream` — § 4.3 (независим, маленький)
+2. `feat(auth): aspect-level privileges for OpenAPI/Rest.li writes` — § 4.1
+3. `fix(auth): authorize schemaField writes against parent dataset with column privileges` — § 4.2
+4. `fix(graphql): structured properties on schemaField authorize against parent dataset` — § 4.2, GraphQL-часть
 
 ---
 
 ## 5. Конфликты при обновлении на будущие версии DataHub
 
-### 5.1. `DefaultEntitySpecResolver` — конфликт гарантирован
+### 5.1. `AuthUtil` / `PoliciesConfig` — основная площадка изменений
 
-В master: другой конструктор (`+ GroupService`), интерфейс `ContextualEntitySpecResolver`, вторая перегрузка
-`resolve(entitySpec, opContext)`, wildcard-импорт, и **два новых провайдера на тех же строках** списка
-(`ContainerFieldResolverProvider`, `GlossaryFieldResolverProvider`). Любая наша правка этого файла (флаг,
-merge в `toMap`) — текстовый конфликт при каждом rebase. Разрешение простое (union списков), но ручное.
+Upstream не менял `isAPIAuthorizedEntityUrnsWithAspect` и соседние методы (наш `RESTRICTED_ASPECT_PRIVILEGES` —
+fork-only, upstream аналога так и не завёл). `PoliciesConfig` в master вырос (новые сущности, привилегии,
+`ENTITY_RESOURCE_PRIVILEGES` +8), но это добавления в других местах файла — конфликты вероятны, разрешение
+тривиальное. Держать наши таблицы в отдельном блоке в конце файла с явным комментарием `// fork-only`.
 
-Смягчение: держать нашу логику в провайдерах, а в `DefaultEntitySpecResolver` — минимум (одна строка
-конструктора с флагом).
+### 5.2. `GenericEntitiesController` — единственный тяжёлый конфликт
 
-### 5.2. Расширение `URN`/`TYPE` vs прецедент upstream
+В master контроллер делегирует в `metadata-io/.../EntityAuthorizationUtils.isAPIAuthorizedIngest(opContext, batch)`
+и `isAPIAuthorizedBatchItems(...)`: результат per-item (HTTP-статус на элемент, а не общий 403), CREATE/UPDATE
+определяется по факту существования entity (existence-aware), а не по `ChangeType`. Наш split батча по
+`isRestrictedAspect` / `unauthorizedAspects` (:670) при апгрейде переписывается под эту точку входа. Сама логика
+(таблицы + remap в `AuthUtil`) переезжает без изменений — `isAPIAuthorizedIngest` в конце тоже зовёт `AuthUtil`.
 
-Upstream добавляет **новые** поля (`CONTAINER`, `GLOSSARY`) и не трогает семантику `URN`/`TYPE`. Если
-когда-нибудь upstream сделает наследование для schemaField, он почти наверняка введёт что-то вроде
-`EntityFieldType.PARENT` / `DATASET` с отдельным провайдером и отдельным критерием в UI. Тогда:
+`toAspectApiOperation(changeType)` заменяется на existence-aware логику upstream.
 
-- наши расширенные `URN`/`TYPE` будут матчить политики, которые upstream-логика матчить не должна
-  (двойное покрытие, но не отказ в доступе);
-- при появлении upstream-константы `EntityFieldType` рядом с нашей — конфликт в enum и в `EntitySpec.pdl`
-  (если добавляли туда).
+### 5.3. `subResources` / `privilegeConstraints` в `PolicyEngine` master
 
-Альтернатива, ближе к upstream: вместо расширения `URN`/`TYPE` ввести `EntityFieldType.PARENT_URN` /
-`PARENT_TYPE` и провайдер `SchemaFieldParentFieldResolverProvider`. Минус: UI не пишет такие критерии,
-политику придётся создавать через API (пока не доработан UI) — исходную задачу «политика на датасет
-покрывает колонки» это не решает без правки `policyUtils.ts`. Поэтому выбран вариант расширения `URN`/`TYPE`
-за флагом; при переходе на upstream-решение флаг выключается, код удаляется.
+Upstream ввёл в `DataHubResourceFilter.privilegeConstraints` и `evaluatePolicy(..., subResources)` — сейчас
+используется только для ограничения «какие теги можно вешать» (`AuthUtil.tagSubResourceSpecs`). Это тот же
+концепт «sub-resource», что и наш remap, но на уровне PolicyEngine. Если upstream расширит его на колонки
+(schemaField как subResource датасета с privilegeConstraints), наш remap в `AuthUtil` станет дублирующим слоем:
+снять его и перейти на upstream-механизм. До тех пор — никакого пересечения: мы в `AuthUtil`, они в `PolicyEngine`.
 
-### 5.3. `NOT_EQUALS` (уже в master)
+### 5.4. `UpsertStructuredPropertiesResolver` / `canEditProperties`
 
-`checkCondition` в master принимает `List<String>` значений ресурса. При `NOT_EQUALS` семантика —
-`noneMatch`. С расширенным `TYPE = {"schemaField", "dataset"}` критерий `TYPE NOT_EQUALS dataset` для
-колонки перестанет срабатывать (раньше — срабатывал). Это ожидаемо и логично при включённом флаге, но
-нужно зафиксировать в тесте при портировании `NOT_EQUALS`.
+В master код идентичен нашему (`AuthorizationUtils:186`). Если upstream починит это сам, будет конфликт в одной
+функции — взять upstream-версию.
 
-### 5.4. `RESTRICTED_ASPECT_PRIVILEGES` и новый OpenAPI-путь в master
+### 5.5. Что НЕ конфликтует (потому что не трогаем)
 
-Механизм fork-only. В master `GenericEntitiesController` делегирует в
-`EntityAuthorizationUtils.isAPIAuthorizedIngest(opContext, batch)` и `isAPIAuthorizedBatchItems(...)`,
-которые возвращают per-item результат (HTTP-статус на item), а не bool. Наш хук с `unauthorizedAspects`
-в `createEntity` (:670) при апгрейде придётся переписать под `isAPIAuthorizedIngest` — точка входа
-одна, но сигнатура и модель ошибок другие. Сама таблица `RESTRICTED_ASPECT_PRIVILEGES` и
-`AuthUtil.isAPIAuthorizedAspect` переживут rebase (upstream эти файлы в этой части не менял), конфликт
-будет только в контроллере.
+`PolicyEngine` (кроме § 4.3, который совпадает с master и при rebase схлопнется), `DefaultEntitySpecResolver`
+(в master сильно переписан: `GroupService`, `ContextualEntitySpecResolver`, два новых провайдера),
+`*FieldResolverProvider`, `EntityFieldType` (в master +CONTAINER, +GLOSSARY), UI политик.
 
-Также upstream ввёл existence-aware привилегии (`CREATE` vs `UPDATE` определяется по факту существования
-entity, а не по `ChangeType`) — `toAspectApiOperation(changeType)` у нас нужно будет заменить на их логику.
-
-### 5.5. `PolicyEngine`
-
-Планом **не трогается** (кроме § 4.4, который повторяет master и при rebase схлопнется без конфликта).
-Это осознанно: сигнатуры `evaluatePolicy`/`isPolicyApplicable`/`getGrantedPrivileges` в master изменены,
-возвращаемые типы другие (`PolicyGrantedPrivileges`) — любая fork-правка внутри `PolicyEngine`
-конфликтовала бы тяжело.
-
-### 5.6. `ENTITY_RESOURCE_PRIVILEGES`
-
-Список в master +8 записей. Добавление `SCHEMA_FIELD_PRIVILEGES` — конфликт в одной строке `ImmutableList.of(...)`,
-разрешается тривиально.
-
-### 5.7. Сводка рисков
+### 5.6. Сводка рисков
 
 | Компонент | Риск конфликта | Тяжесть разрешения |
 |-----------|----------------|--------------------|
-| `DefaultEntitySpecResolver` | высокий | низкая (union) |
-| `Entity{Urn,Type}FieldResolverProvider` | низкий (upstream не менял) | — |
-| `Owner/DomainFieldResolverProvider` | средний (upstream добавил кэш owners в `PolicyEvaluationContext`) | средняя |
-| `EntityFieldType` | низкий, если не добавлять констант | — |
+| `AuthUtil` | низкий (upstream не менял эту часть) | низкая |
 | `PoliciesConfig` | средний (большой файл, много добавлений в master) | низкая |
 | `GenericEntitiesController` | высокий | **высокая** — переписать под `EntityAuthorizationUtils` |
-| `PolicyEngine` | нет (не трогаем) | — |
-| `application.yaml` | низкий | низкая |
+| Rest.li `AspectResource`/`EntityResource` | средний | средняя |
+| GraphQL `AuthorizationUtils.canEditProperties` | низкий | низкая |
+| `PolicyEngine`, `DefaultEntitySpecResolver`, провайдеры | нет (не трогаем) | — |
