@@ -1,0 +1,4 @@
+# Copy to ./datahub-cli.yaml (next to where you run the CLI) or to ~/.datahub/datahub-cli.yaml.
+# Both values can be overridden by DATAHUB_GMS_URL / DATAHUB_GMS_TOKEN or by --url / --token.
+gmsUrl: http://localhost:8080
+token: ""

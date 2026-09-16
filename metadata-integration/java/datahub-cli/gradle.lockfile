@@ -1,0 +1,17 @@
+# This is a Gradle generated file for dependency locking.
+# Manual edits can break the build and are not advised.
+# This file is expected to be part of source control.
+com.beust:jcommander:1.82=testCompileClasspath,testRuntimeClasspath
+com.fasterxml.jackson.core:jackson-annotations:2.21=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+com.fasterxml.jackson.core:jackson-core:2.21.5=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+com.fasterxml.jackson.core:jackson-databind:2.21.5=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.21.5=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+com.fasterxml.jackson:jackson-bom:2.21.5=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+info.picocli:picocli-codegen:4.7.5=annotationProcessor
+info.picocli:picocli:4.7.5=annotationProcessor,compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+jakarta.annotation:jakarta.annotation-api:3.0.0=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+org.slf4j:slf4j-api:1.7.36=testCompileClasspath,testRuntimeClasspath
+org.testng:testng:7.8.0=testCompileClasspath,testRuntimeClasspath
+org.webjars:jquery:3.6.1=testRuntimeClasspath
+org.yaml:snakeyaml:2.5=compileClasspath,runtimeClasspath,testCompileClasspath,testRuntimeClasspath
+empty=testAnnotationProcessor

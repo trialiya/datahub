@@ -1,0 +1,29 @@
+plugins {
+    id "application"
+}
+apply plugin: 'java'
+
+ext {
+    javaMainClass = "io.datahubproject.cli.DataHubCli"
+}
+
+application {
+    mainClass = javaMainClass
+    applicationName = 'datahub-cli'
+}
+
+dependencies {
+    implementation 'info.picocli:picocli:4.7.5'
+    annotationProcessor 'info.picocli:picocli-codegen:4.7.5'
+
+    // HTTP is java.net.http (JDK); Jackson covers both the GraphQL payloads and the YAML config.
+    implementation platform(externalDependency.jacksonBom)
+    implementation externalDependency.jacksonDataBind
+    implementation externalDependency.jacksonDataFormatYaml
+
+    testImplementation externalDependency.testng
+}
+
+test {
+    useTestNG()
+}
