@@ -65,6 +65,44 @@ datahub> policies --state ACTIVE
 datahub> exit
 ```
 
+### `search`
+
+Searches entities through the GraphQL `scrollAcrossEntities` query, with an optional `--where`
+filter expression.
+
+```bash
+datahub-cli search '*' --where 'entity_type = dataset AND platform = hive'
+datahub-cli search 'events' --where 'platform IN (hive, snowflake) AND env = PROD' -n 50
+datahub-cli search '*' --where 'owner IS NOT NULL AND NOT tag = urn:li:tag:Deprecated'
+datahub-cli search --where '...' --print-filters     # show the compiled filters, run nothing
+```
+
+The filter vocabulary mirrors the Python SDK's, so the same field names work in both CLIs:
+`entity_type` (or `type`), `entity_subtype`, `platform`, `env`, `domain`, `container`, `tag`,
+`glossary_term`, `owner`. Any other name is passed through as a raw Elasticsearch field.
+
+Values are coerced the way the Python DSL coerces them — `platform = snowflake` is sent as
+`platform.keyword = urn:li:dataPlatform:snowflake` — and `domain`, `container`, `tag`,
+`glossary_term` and `owner` require full URNs.
+
+**Supported subset**: conditions joined by `AND`, plus `NOT`, `!=`, `IN (a, b)` and
+`IS [NOT] NULL`. Top-level `OR` and parentheses are rejected with an explanatory error rather than
+parsed loosely, because supporting them means normalising the expression to disjunctive normal
+form. `IN` still gives OR over one field's values, which covers most queries.
+
+`--print-filters` shows what an expression compiles to, which is the quickest way to check a
+mapping without running anything:
+
+```
+$ datahub-cli search --where 'platform = hive AND env = PROD' --print-filters
+orFilters:
+  - and: [{field=platform.keyword, condition=EQUAL, values=[urn:li:dataPlatform:hive]}, {field=origin, condition=EQUAL, values=[PROD]}]
+  - and: [{field=platform.keyword, condition=EQUAL, values=[urn:li:dataPlatform:hive]}, {field=env, condition=EQUAL, values=[PROD]}]
+```
+
+Two clauses, because containers keep the environment in `env` while everything else keeps it in
+`origin`. GMS takes `orFilters` as an OR of ANDs, so the platform condition is repeated into both.
+
 ### `aspect`
 
 Fetches one aspect of one entity through the OpenAPI v3 endpoint

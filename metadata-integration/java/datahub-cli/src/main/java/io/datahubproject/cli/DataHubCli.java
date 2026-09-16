@@ -3,6 +3,7 @@ package io.datahubproject.cli;
 import io.datahubproject.cli.client.DataHubHttpClient;
 import io.datahubproject.cli.command.AspectCommand;
 import io.datahubproject.cli.command.PoliciesCommand;
+import io.datahubproject.cli.command.SearchCommand;
 import io.datahubproject.cli.command.ShellCommand;
 import io.datahubproject.cli.config.CliConfig;
 import java.nio.file.Path;
@@ -15,7 +16,12 @@ import picocli.CommandLine;
     mixinStandardHelpOptions = true,
     version = "datahub-cli 0.1.0",
     description = "Local CLI for inspecting a DataHub instance.",
-    subcommands = {PoliciesCommand.class, AspectCommand.class, ShellCommand.class})
+    subcommands = {
+      PoliciesCommand.class,
+      AspectCommand.class,
+      SearchCommand.class,
+      ShellCommand.class
+    })
 public class DataHubCli implements Runnable {
 
   @CommandLine.Option(
