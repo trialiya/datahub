@@ -77,6 +77,23 @@ datahub-cli search '*' --where 'owner IS NOT NULL AND NOT tag = urn:li:tag:Depre
 datahub-cli search --where '...' --print-filters     # show the compiled filters, run nothing
 ```
 
+By default the first `--limit` hits are returned (20). `--all` follows the scroll cursor until every
+match is collected, 100 per request.
+
+`--aspect` fetches aspects for the hits and prints one JSON object per line, ready for `jq`. The
+aspects are read through OpenAPI v3 `batchGet`, grouped by entity type and chunked 100 at a time, so
+a 250-hit search costs 3 search requests and 3 aspect requests rather than 250:
+
+```bash
+datahub-cli search '*' --where 'platform = hive' --all --aspect ownership --aspect status
+```
+
+```
+{"urn":"urn:li:dataset:(urn:li:dataPlatform:hive,my_db.events,PROD)","type":"DATASET","aspects":{"ownership":{"owners":[...]}}}
+```
+
+Aspects that an entity does not have are simply absent from its `aspects` object.
+
 The filter vocabulary mirrors the Python SDK's, so the same field names work in both CLIs:
 `entity_type` (or `type`), `entity_subtype`, `platform`, `env`, `domain`, `container`, `tag`,
 `glossary_term`, `owner`. Any other name is passed through as a raw Elasticsearch field.

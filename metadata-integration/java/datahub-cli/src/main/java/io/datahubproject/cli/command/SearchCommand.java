@@ -1,13 +1,17 @@
 package io.datahubproject.cli.command;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.datahubproject.cli.DataHubCli;
+import io.datahubproject.cli.client.AspectClient;
 import io.datahubproject.cli.client.DataHubHttpClient;
 import io.datahubproject.cli.client.GraphQLClient;
 import io.datahubproject.cli.client.SearchClient;
 import io.datahubproject.cli.search.FilterRule;
 import io.datahubproject.cli.search.WhereParser;
 import java.io.PrintWriter;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import picocli.CommandLine;
 
@@ -40,6 +44,16 @@ public class SearchCommand implements Callable<Integer> {
   private int limit = 20;
 
   @CommandLine.Option(
+      names = {"-a", "--aspect"},
+      description = "Also fetch this aspect for every hit, batched through OpenAPI v3. Repeatable.")
+  private List<String> aspects = List.of();
+
+  @CommandLine.Option(
+      names = "--all",
+      description = "Follow the scroll cursor until every match is returned, ignoring --limit.")
+  private boolean all;
+
+  @CommandLine.Option(
       names = "--print-filters",
       description = "Print the compiled GraphQL orFilters instead of running the search.")
   private boolean printFilters;
@@ -56,22 +70,47 @@ public class SearchCommand implements Callable<Integer> {
 
     try (DataHubHttpClient http = parent.newHttpClient()) {
       SearchClient.Results results =
-          new SearchClient(new GraphQLClient(http)).search(query, filters, limit);
+          new SearchClient(new GraphQLClient(http)).searchAll(query, filters, all ? 0 : limit);
 
       if (results.hits().isEmpty()) {
         out.println("No matches.");
         return 0;
       }
-      TableRenderer.render(
-          out,
-          HEADERS,
-          results.hits().stream().map(hit -> List.of(hit.urn(), hit.type())).toList());
+
+      if (aspects.isEmpty()) {
+        TableRenderer.render(
+            out,
+            HEADERS,
+            results.hits().stream().map(hit -> List.of(hit.urn(), hit.type())).toList());
+      } else {
+        printWithAspects(out, http, results);
+      }
+
       out.println();
       out.printf("%d of %d matches · %s%n", results.hits().size(), results.total(), http.gmsUrl());
     }
 
     out.flush();
     return 0;
+  }
+
+  /**
+   * Prints one JSON object per hit, so the result can be piped into jq. The aspects of every hit
+   * are read in batches rather than one request per entity.
+   */
+  private void printWithAspects(
+      PrintWriter out, DataHubHttpClient http, SearchClient.Results results) throws Exception {
+    List<String> urns = results.hits().stream().map(SearchClient.Hit::urn).toList();
+    Map<String, Map<String, JsonNode>> byUrn =
+        new AspectClient(http).getAspectsBatch(urns, aspects);
+
+    for (SearchClient.Hit hit : results.hits()) {
+      Map<String, Object> row = new LinkedHashMap<>();
+      row.put("urn", hit.urn());
+      row.put("type", hit.type());
+      row.put("aspects", byUrn.getOrDefault(hit.urn(), Map.of()));
+      out.println(http.mapper().writeValueAsString(row));
+    }
   }
 
   /** Shows what the expression compiled to, so the mapping to GMS filters can be checked. */

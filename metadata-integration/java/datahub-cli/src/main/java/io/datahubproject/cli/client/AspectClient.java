@@ -50,6 +50,67 @@ public class AspectClient {
     return new AspectPayload(response.path("value"), response.get("systemMetadata"));
   }
 
+  /** Entities per batchGet call; GMS reads them in one shot, but the URL-free body still grows. */
+  private static final int BATCH_SIZE = 100;
+
+  /**
+   * Reads the same aspects for many entities, one request per entity type per batch, instead of one
+   * request per entity.
+   *
+   * @return urn -> aspect name -> aspect value, with absent aspects simply missing
+   */
+  public Map<String, Map<String, JsonNode>> getAspectsBatch(
+      List<String> urns, List<String> aspectNames) throws IOException {
+    Map<String, Map<String, JsonNode>> byUrn = new LinkedHashMap<>();
+
+    // batchGet is routed per entity type, so group first and keep the caller's order within a type.
+    Map<String, List<String>> urnsByType = new LinkedHashMap<>();
+    for (String urn : urns) {
+      urnsByType.computeIfAbsent(Urns.entityType(urn), type -> new ArrayList<>()).add(urn);
+    }
+
+    for (Map.Entry<String, List<String>> entry : urnsByType.entrySet()) {
+      List<String> typeUrns = entry.getValue();
+      for (int start = 0; start < typeUrns.size(); start += BATCH_SIZE) {
+        List<String> batch = typeUrns.subList(start, Math.min(start + BATCH_SIZE, typeUrns.size()));
+        byUrn.putAll(fetchBatch(entry.getKey(), batch, aspectNames));
+      }
+    }
+    return byUrn;
+  }
+
+  private Map<String, Map<String, JsonNode>> fetchBatch(
+      String entityType, List<String> urns, List<String> aspectNames) throws IOException {
+    // Body shape: [{"urn": "...", "<aspectName>": {}}, ...]
+    List<Map<String, Object>> body = new ArrayList<>();
+    for (String urn : urns) {
+      Map<String, Object> item = new LinkedHashMap<>();
+      item.put("urn", urn);
+      aspectNames.forEach(aspect -> item.put(aspect, Map.of()));
+      body.add(item);
+    }
+
+    JsonNode response =
+        http.postJson(
+            ENTITY_PATH + "/" + DataHubHttpClient.encodePathSegment(entityType) + "/batchGet",
+            body);
+
+    Map<String, Map<String, JsonNode>> byUrn = new LinkedHashMap<>();
+    response.forEach(
+        entity -> {
+          Map<String, JsonNode> aspects = new LinkedHashMap<>();
+          for (String aspect : aspectNames) {
+            JsonNode node = entity.get(aspect);
+            if (node != null && !node.isNull()) {
+              // Each aspect arrives wrapped as {"value": ..., "systemMetadata": ...}.
+              aspects.put(aspect, node.path("value"));
+            }
+          }
+          byUrn.put(entity.path("urn").asText(""), aspects);
+        });
+    return byUrn;
+  }
+
   /**
    * Lists the aspect names an entity type declares, according to the server's own entity registry.
    *
