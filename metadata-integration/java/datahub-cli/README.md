@@ -65,6 +65,34 @@ datahub> policies --state ACTIVE
 datahub> exit
 ```
 
+### `aspect`
+
+Fetches one aspect of one entity through the OpenAPI v3 endpoint
+`GET /openapi/v3/entity/{entityName}/{urn}/{aspectName}`. The entity type is derived from the URN.
+
+```bash
+datahub-cli aspect 'urn:li:dataset:(urn:li:dataPlatform:hive,my_db.my_schema.events,PROD)' ownership
+datahub-cli aspect <urn> ownership --version 2
+datahub-cli aspect <urn> ownership --system-metadata
+datahub-cli aspect <urn> ownership --list        # aspect names for the URN's entity type
+```
+
+Before fetching, the aspect name is validated against the server's own entity registry
+(`GET /openapi/v1/registry/models/entity/specifications/{entityName}/aspects`), so a typo is
+reported with the list of valid names instead of a bare 404:
+
+```
+$ datahub-cli aspect <urn> ownershipp
+Unknown aspect 'ownershipp' for entity type 'dataset'. Known aspects: datasetKey,
+datasetProperties, globalTags, ownership, schemaMetadata
+```
+
+That registry endpoint requires `MANAGE_SYSTEM_OPERATIONS_PRIVILEGE`. When the token does not have
+it, validation is skipped silently and the aspect is fetched anyway — reading an aspect needs no
+such privilege. `--list` says so explicitly rather than printing nothing.
+
+Exit codes: `0` on success, `2` for an unknown aspect name, `1` when the entity has no such aspect.
+
 ### `policies`
 
 Lists policies and the privileges they grant.

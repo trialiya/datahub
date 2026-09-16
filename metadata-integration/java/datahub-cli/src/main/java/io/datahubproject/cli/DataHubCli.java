@@ -1,6 +1,7 @@
 package io.datahubproject.cli;
 
-import io.datahubproject.cli.client.GraphQLClient;
+import io.datahubproject.cli.client.DataHubHttpClient;
+import io.datahubproject.cli.command.AspectCommand;
 import io.datahubproject.cli.command.PoliciesCommand;
 import io.datahubproject.cli.command.ShellCommand;
 import io.datahubproject.cli.config.CliConfig;
@@ -14,7 +15,7 @@ import picocli.CommandLine;
     mixinStandardHelpOptions = true,
     version = "datahub-cli 0.1.0",
     description = "Local CLI for inspecting a DataHub instance.",
-    subcommands = {PoliciesCommand.class, ShellCommand.class})
+    subcommands = {PoliciesCommand.class, AspectCommand.class, ShellCommand.class})
 public class DataHubCli implements Runnable {
 
   @CommandLine.Option(
@@ -54,8 +55,8 @@ public class DataHubCli implements Runnable {
     return CliConfig.resolve(url, token, configFile, System.getenv());
   }
 
-  public GraphQLClient newGraphQLClient() {
-    return new GraphQLClient(config(), Duration.ofSeconds(timeoutSeconds));
+  public DataHubHttpClient newHttpClient() {
+    return new DataHubHttpClient(config(), Duration.ofSeconds(timeoutSeconds));
   }
 
   /**

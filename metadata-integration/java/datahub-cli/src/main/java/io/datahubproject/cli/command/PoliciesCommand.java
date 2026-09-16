@@ -2,6 +2,7 @@ package io.datahubproject.cli.command;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.datahubproject.cli.DataHubCli;
+import io.datahubproject.cli.client.DataHubHttpClient;
 import io.datahubproject.cli.client.GraphQLClient;
 import io.datahubproject.cli.client.Policy;
 import io.datahubproject.cli.client.PolicyClient;
@@ -58,8 +59,8 @@ public class PoliciesCommand implements Callable<Integer> {
     PrintWriter out = parent.spec().commandLine().getOut();
 
     List<Policy> policies;
-    try (GraphQLClient graphQLClient = parent.newGraphQLClient()) {
-      policies = new PolicyClient(graphQLClient).listPolicies();
+    try (DataHubHttpClient http = parent.newHttpClient()) {
+      policies = new PolicyClient(new GraphQLClient(http)).listPolicies();
     }
 
     List<Policy> filtered =
