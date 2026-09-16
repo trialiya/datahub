@@ -1,5 +1,6 @@
 plugins {
     id "application"
+    id 'com.gradleup.shadow'
 }
 apply plugin: 'java'
 
@@ -10,11 +11,19 @@ ext {
 application {
     mainClass = javaMainClass
     applicationName = 'datahub-cli'
+    // JLine's FFM terminal provider calls restricted native methods; without this the JVM prints a
+    // warning on every run and will refuse the call outright in a future release.
+    applicationDefaultJvmArgs = ['--enable-native-access=ALL-UNNAMED']
 }
 
 dependencies {
     implementation 'info.picocli:picocli:4.7.5'
     annotationProcessor 'info.picocli:picocli-codegen:4.7.5'
+
+    // Interactive shell. The root build pins org.jline to jlineVersion for CVE fixes, so the glue
+    // in ShellCommand is written against the JLine API directly rather than via picocli-shell-jline3
+    // (which targets the JLine 3.x line).
+    implementation "org.jline:jline:${rootProject.ext.jlineVersion}"
 
     // HTTP is java.net.http (JDK); Jackson covers both the GraphQL payloads and the YAML config.
     implementation platform(externalDependency.jacksonBom)
@@ -22,6 +31,24 @@ dependencies {
     implementation externalDependency.jacksonDataFormatYaml
 
     testImplementation externalDependency.testng
+}
+
+jar {
+    archiveClassifier = 'lib'
+}
+
+// The distributable artifact is a single portable jar: build/libs/datahub-cli-<version>.jar,
+// runnable with `java -jar` on any host with a matching JDK and no lib/ directory next to it.
+shadowJar {
+    archiveClassifier = ''
+    // JLine discovers its terminal providers through ServiceLoader; without merged service files
+    // the shaded jar falls back to a dumb terminal and loses line editing.
+    mergeServiceFiles()
+    manifest {
+        attributes 'Main-Class': javaMainClass
+        // Same reason as applicationDefaultJvmArgs above, for `java -jar` where no flags are passed.
+        attributes 'Enable-Native-Access': 'ALL-UNNAMED'
+    }
 }
 
 test {

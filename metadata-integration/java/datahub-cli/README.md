@@ -5,12 +5,23 @@ It talks to GMS over GraphQL and needs nothing but a URL and a token.
 
 ## Build and run
 
+The distributable artifact is a single portable jar — copy it anywhere and run it with `java -jar`,
+no `lib/` directory needed:
+
+```bash
+./gradlew :metadata-integration:java:datahub-cli:shadowJar
+java -jar metadata-integration/java/datahub-cli/build/libs/datahub-cli.jar policies
+```
+
+A start script with the dependencies on the classpath is also available:
+
 ```bash
 ./gradlew :metadata-integration:java:datahub-cli:installDist
 ./metadata-integration/java/datahub-cli/build/install/datahub-cli/bin/datahub-cli policies
 ```
 
-During development you can also run it straight from Gradle:
+During development you can run it straight from Gradle, but note that Gradle captures stdin, so the
+interactive shell needs one of the two forms above:
 
 ```bash
 ./gradlew :metadata-integration:java:datahub-cli:run --args="policies --state ACTIVE"
@@ -28,6 +39,31 @@ Connection settings are resolved in this order, highest precedence first:
 See [datahub-cli.example.yaml](datahub-cli.example.yaml).
 
 ## Commands
+
+Every command works both as a one-shot invocation and inside the interactive shell.
+
+### `shell`
+
+Starts an interactive session with line editing, history (`~/.datahub/datahub-cli-history`) and TAB
+completion of commands, options and option values. `Ctrl+C` abandons the current line, `Ctrl+D` or
+`exit` leaves the shell. Connection settings given to `shell` apply to every command run inside it.
+
+```
+$ java -jar datahub-cli.jar --url https://datahub.example.com shell
+DataHub CLI · connected to https://datahub.example.com
+Type 'help' for commands, TAB to complete, Ctrl+D to exit.
+
+datahub> pol<TAB>
+policies
+
+datahub> policies --format <TAB>
+TABLE  CSV  JSON
+
+datahub> policies --state ACTIVE
+...
+
+datahub> exit
+```
 
 ### `policies`
 
