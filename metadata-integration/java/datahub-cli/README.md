@@ -5,19 +5,20 @@ It talks to GMS over GraphQL and needs nothing but a URL and a token.
 
 ## Build and run
 
-The distributable artifact is a single portable jar — copy it anywhere and run it with `java -jar`,
-no `lib/` directory needed:
-
-```bash
-./gradlew :metadata-integration:java:datahub-cli:shadowJar
-java -jar metadata-integration/java/datahub-cli/build/libs/datahub-cli.jar policies
-```
-
-A start script with the dependencies on the classpath is also available:
+The everyday artifact is a start script with the dependencies on the classpath:
 
 ```bash
 ./gradlew :metadata-integration:java:datahub-cli:installDist
 ./metadata-integration/java/datahub-cli/build/install/datahub-cli/bin/datahub-cli policies
+```
+
+For distribution there is also a single portable jar — copy it anywhere and run it with `java -jar`,
+no `lib/` directory needed. It is opt-in, because the shadow plugin wires itself into `assemble` and
+every build would then repack ~47 MB (8.6s against 2.3s measured):
+
+```bash
+./gradlew :metadata-integration:java:datahub-cli:shadowJar -PwithShadowJar
+java -jar metadata-integration/java/datahub-cli/build/libs/datahub-cli.jar policies
 ```
 
 During development you can run it straight from Gradle, but note that Gradle captures stdin, so the

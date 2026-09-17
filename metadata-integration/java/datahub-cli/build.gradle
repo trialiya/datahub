@@ -1,8 +1,18 @@
 plugins {
     id "application"
-    id 'com.gradleup.shadow'
 }
 apply plugin: 'java'
+
+// The shaded jar is a release artifact, not an everyday one. Applying the shadow plugin wires
+// shadowJar into `assemble`, and every build then repacks ~47 MB: measured 8.6s against 2.4s for
+// the plain jar + lib/ layout. Unwiring it from `assemble` afterwards does not work -- the plugin
+// also registers it as an archive artifact -- so the plugin itself is opt-in:
+//
+//   ./gradlew :metadata-integration:java:datahub-cli:shadowJar -PwithShadowJar
+def withShadowJar = project.hasProperty('withShadowJar')
+if (withShadowJar) {
+    apply plugin: 'com.gradleup.shadow'
+}
 
 ext {
     javaMainClass = "io.datahubproject.cli.DataHubCli"
@@ -42,23 +52,31 @@ dependencies {
     testImplementation externalDependency.testng
 }
 
-jar {
-    archiveClassifier = 'lib'
-}
+if (withShadowJar) {
+    // The shaded jar takes the plain name; the thin jar steps aside so the two do not collide.
+    jar {
+        archiveClassifier = 'lib'
+    }
 
-// The distributable artifact is a single portable jar: build/libs/datahub-cli-<version>.jar,
-// runnable with `java -jar` on any host with a matching JDK and no lib/ directory next to it.
-shadowJar {
-    archiveClassifier = ''
-    // JLine discovers its terminal providers through ServiceLoader; without merged service files
-    // the shaded jar falls back to a dumb terminal and loses line editing.
-    mergeServiceFiles()
-    manifest {
-        attributes 'Main-Class': javaMainClass
-        // Same reason as applicationDefaultJvmArgs above, for `java -jar` where no flags are passed.
-        attributes 'Enable-Native-Access': 'ALL-UNNAMED'
+    // A single portable jar: build/libs/datahub-cli.jar, runnable with `java -jar` on any host with
+    // a matching JDK and no lib/ directory next to it.
+    shadowJar {
+        archiveClassifier = ''
+        // JLine discovers its terminal providers through ServiceLoader; without merged service
+        // files the shaded jar falls back to a dumb terminal and loses line editing.
+        mergeServiceFiles()
+        manifest {
+            attributes 'Main-Class': javaMainClass
+            // Same reason as applicationDefaultJvmArgs above, for `java -jar` with no flags.
+            attributes 'Enable-Native-Access': 'ALL-UNNAMED'
+        }
     }
 }
+
+// Archives nothing here consumes: installDist already gives the jar + lib/ layout, and the shaded
+// distribution would be that layout with an already-fat jar inside it.
+tasks.matching { it.name in ['distTar', 'distZip', 'shadowDistTar', 'shadowDistZip'] }
+        .configureEach { enabled = false }
 
 test {
     useTestNG()
