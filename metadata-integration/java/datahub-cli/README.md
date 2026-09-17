@@ -45,7 +45,7 @@ Every command works both as a one-shot invocation and inside the interactive she
 ### `shell`
 
 Starts an interactive session with line editing, history (`~/.datahub/datahub-cli-history`) and TAB
-completion of commands, options and option values. `Ctrl+C` abandons the current line, `Ctrl+D` or
+completion of commands, options, option values, and entity and aspect names. `Ctrl+C` abandons the current line, `Ctrl+D` or
 `exit` leaves the shell. Connection settings given to `shell` apply to every command run inside it.
 
 ```
@@ -58,6 +58,12 @@ policies
 
 datahub> policies --format <TAB>
 TABLE  CSV  JSON
+
+datahub> aspect <TAB>
+urn:li:dataset:   urn:li:dataHubPolicy:   urn:li:chart:   ...      (71 entity types)
+
+datahub> aspect urn:li:dataHubPolicy:0 <TAB>
+dataHubPolicyInfo  dataHubPolicyKey                                (only that entity's aspects)
 
 datahub> policies --state ACTIVE
 ...
@@ -185,6 +191,21 @@ Options:
 | `--type`       | Filter by type, e.g. `METADATA` or `PLATFORM` |
 | `--privilege`  | Only policies granting this privilege         |
 | `--urn`        | Show the policy URN instead of its name       |
+
+## Where the model names come from
+
+Entity and aspect names offered by TAB completion come from the `entity-registry.yml` compiled into
+this CLI, read offline so a keystroke never waits on the network. It is the model of the build the
+CLI was compiled from, which is good enough to type against but is not authoritative: a server may
+run a different version or carry custom models. Correctness checks therefore still go to the server —
+`aspect` validates the aspect name against `/openapi/v1/registry/models/...`, not against this copy.
+
+Loading the registry parses every aspect's schema and takes about two seconds, so it is deferred:
+one-shot commands never load it (`--version` still runs in ~0.25s), and `shell` starts loading it in
+the background at startup so the first TAB press does not wait.
+
+This is what makes the shaded jar ~47 MB rather than ~5 MB: the registry brings metadata-models and
+the pegasus runtime, of which icu4j alone is 13 MB.
 
 ## Troubleshooting
 

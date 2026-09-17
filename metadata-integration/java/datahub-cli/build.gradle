@@ -25,6 +25,10 @@ dependencies {
     // (which targets the JLine 3.x line).
     implementation "org.jline:jline:${rootProject.ext.jlineVersion}"
 
+    // Offline entity registry, used only for TAB completion of entity and aspect names. It brings
+    // metadata-models and the pegasus runtime with it, which is most of the shaded jar's size.
+    implementation project(':entity-registry')
+
     // HTTP is java.net.http (JDK); Jackson covers both the GraphQL payloads and the YAML config.
     implementation platform(externalDependency.jacksonBom)
     implementation externalDependency.jacksonDataBind

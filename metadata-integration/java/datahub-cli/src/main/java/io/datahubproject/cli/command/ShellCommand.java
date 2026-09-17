@@ -1,6 +1,8 @@
 package io.datahubproject.cli.command;
 
 import io.datahubproject.cli.DataHubCli;
+import io.datahubproject.cli.registry.LocalEntityRegistry;
+import io.datahubproject.cli.registry.ModelNames;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -26,6 +28,12 @@ public class ShellCommand implements Callable<Integer> {
 
   @Override
   public Integer call() throws IOException {
+    // Loading the registry parses every aspect's schema and takes a couple of seconds, so start it
+    // now rather than making the first TAB press wait for it.
+    Thread warmup = new Thread(LocalEntityRegistry::get, "entity-registry-warmup");
+    warmup.setDaemon(true);
+    warmup.start();
+
     try (Terminal terminal =
         TerminalBuilder.builder()
             .name("datahub-cli")
@@ -38,7 +46,9 @@ public class ShellCommand implements Callable<Integer> {
           LineReaderBuilder.builder()
               .terminal(terminal)
               .appName("datahub-cli")
-              .completer(new CommandCompleter(this::newCommandLine, BUILTINS))
+              .completer(
+                  new CommandCompleter(
+                      this::newCommandLine, BUILTINS, ModelNames.FROM_LOCAL_REGISTRY))
               .variable(
                   LineReader.HISTORY_FILE,
                   Path.of(System.getProperty("user.home", ""), HISTORY_FILE))
