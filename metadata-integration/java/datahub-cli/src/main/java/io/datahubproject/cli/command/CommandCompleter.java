@@ -129,8 +129,12 @@ public class CommandCompleter implements Completer {
 
   private void completeOptionValue(
       CommandLine.Model.OptionSpec option, List<Candidate> candidates) {
-    if (isAspectOption(option)) {
+    if (hasName(option, "--aspect")) {
       modelNames.allAspectNames().forEach(name -> candidates.add(new Candidate(name)));
+      return;
+    }
+    if (hasName(option, "--privilege")) {
+      modelNames.privilegeNames().forEach(name -> candidates.add(new Candidate(name)));
       return;
     }
     if (option.completionCandidates() != null) {
@@ -138,9 +142,9 @@ public class CommandCompleter implements Completer {
     }
   }
 
-  private static boolean isAspectOption(CommandLine.Model.OptionSpec option) {
+  private static boolean hasName(CommandLine.Model.OptionSpec option, String wanted) {
     for (String name : option.names()) {
-      if ("--aspect".equals(name)) {
+      if (wanted.equals(name)) {
         return true;
       }
     }

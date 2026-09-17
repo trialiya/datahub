@@ -18,6 +18,9 @@ public interface ModelNames {
   /** Every aspect name in the model, for places where the entity type is not known yet. */
   List<String> allAspectNames();
 
+  /** Every privilege type known to this build. */
+  List<String> privilegeNames();
+
   /** Names from the registry compiled into this CLI; empty when it cannot be loaded. */
   ModelNames FROM_LOCAL_REGISTRY =
       new ModelNames() {
@@ -42,6 +45,11 @@ public interface ModelNames {
           TreeSet<String> names = new TreeSet<>();
           registry.entityNames().forEach(entity -> names.addAll(registry.aspectNames(entity)));
           return List.copyOf(names);
+        }
+
+        @Override
+        public List<String> privilegeNames() {
+          return Privileges.names();
         }
       };
 }

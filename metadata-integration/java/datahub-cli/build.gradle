@@ -29,6 +29,11 @@ dependencies {
     // metadata-models and the pegasus runtime with it, which is most of the shaded jar's size.
     implementation project(':entity-registry')
 
+    // Only for PoliciesConfig, the catalogue of privilege names and descriptions. Its transitive
+    // closure is the whole server stack (measured: 361 jars, 221 MB), while the class itself needs
+    // just pegasus, guava and the policy models, which entity-registry above already brings.
+    implementation(project(':metadata-utils')) { transitive = false }
+
     // HTTP is java.net.http (JDK); Jackson covers both the GraphQL payloads and the YAML config.
     implementation platform(externalDependency.jacksonBom)
     implementation externalDependency.jacksonDataBind

@@ -65,6 +65,9 @@ urn:li:dataset:   urn:li:dataHubPolicy:   urn:li:chart:   ...      (71 entity ty
 datahub> aspect urn:li:dataHubPolicy:0 <TAB>
 dataHubPolicyInfo  dataHubPolicyKey                                (only that entity's aspects)
 
+datahub> policies --privilege MANAGE_<TAB>
+MANAGE_ACCESS_TOKENS  MANAGE_DOMAINS  MANAGE_POLICIES  ...         (87 privilege names)
+
 datahub> policies --state ACTIVE
 ...
 
@@ -203,6 +206,13 @@ run a different version or carry custom models. Correctness checks therefore sti
 Loading the registry parses every aspect's schema and takes about two seconds, so it is deferred:
 one-shot commands never load it (`--version` still runs in ~0.25s), and `shell` starts loading it in
 the background at startup so the first TAB press does not wait.
+
+Privilege names come from GMS's own `PoliciesConfig`, pulled in with
+`implementation(project(':metadata-utils')) { transitive = false }`. Its transitive closure is the
+whole server stack — 361 jars and 221 MB — but the class itself only needs pegasus, guava and the
+policy models, which `entity-registry` already provides, so the exclusion costs 186 KB and adds no
+external dependency. It loads in about 70 ms, not the registry's two seconds, because only the policy
+schemas are parsed.
 
 This is what makes the shaded jar ~47 MB rather than ~5 MB: the registry brings metadata-models and
 the pegasus runtime, of which icu4j alone is 13 MB.

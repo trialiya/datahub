@@ -36,6 +36,11 @@ public class CommandCompleterTest {
         public List<String> allAspectNames() {
           return List.of("dataHubPolicyInfo", "dataHubPolicyKey", "datasetKey", "ownership");
         }
+
+        @Override
+        public List<String> privilegeNames() {
+          return List.of("EDIT_ENTITY_TAGS", "MANAGE_POLICIES");
+        }
       };
 
   /** Minimal ParsedLine: the completer only reads words() and wordIndex(). */
@@ -123,6 +128,14 @@ public class CommandCompleterTest {
 
     assertTrue(candidates.contains("ownership"), candidates.toString());
     assertTrue(candidates.contains("dataHubPolicyInfo"), candidates.toString());
+  }
+
+  @Test
+  public void testPrivilegeOptionOffersPrivilegeNames() {
+    List<String> candidates = complete(List.of("policies", "--privilege", ""), 2);
+
+    assertTrue(candidates.contains("MANAGE_POLICIES"), candidates.toString());
+    assertFalse(candidates.contains("ownership"), candidates.toString());
   }
 
   @Test
