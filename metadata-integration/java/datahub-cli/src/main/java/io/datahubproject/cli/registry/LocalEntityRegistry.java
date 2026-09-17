@@ -91,9 +91,12 @@ public final class LocalEntityRegistry {
 
           @Override
           public synchronized void flush() {
-            if (line.size() > 0) {
-              emit();
-            }
+            // Deliberately not emitting a partial line: the notices arrive as several print
+            // calls, and the PrintStream below auto-flushes after each one, so emitting here
+            // would split one notice into several lines and only the first would be matched
+            // against the prefixes. Whatever is left when stderr is restored is a fragment of
+            // such a notice, and dropping it is the point of this stream.
+            delegate.flush();
           }
 
           private void emit() {

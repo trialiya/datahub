@@ -19,13 +19,6 @@ import picocli.CommandLine;
     description = "List DataHub policies and the privileges they grant.")
 public class PoliciesCommand implements Callable<Integer> {
 
-  /** Output shapes; CSV and JSON exist so results can be diffed between environments. */
-  public enum Format {
-    TABLE,
-    CSV,
-    JSON
-  }
-
   private static final List<String> HEADERS =
       List.of("NAME", "TYPE", "STATE", "PRIVILEGES", "ACTORS");
 
@@ -34,7 +27,7 @@ public class PoliciesCommand implements Callable<Integer> {
   @CommandLine.Option(
       names = {"-f", "--format"},
       description = "Output format: ${COMPLETION-CANDIDATES}. Default: ${DEFAULT-VALUE}.")
-  private Format format = Format.TABLE;
+  private OutputFormat format = OutputFormat.TABLE;
 
   @CommandLine.Option(
       names = "--state",

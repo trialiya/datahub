@@ -79,16 +79,22 @@ public class CommandCompleter implements Completer {
       List<String> words,
       int wordIndex,
       List<Candidate> candidates) {
+    if ("can".equals(subcommandName)) {
+      // The only positional is the actor, and an actor is a user or a group.
+      if (positionalsBefore(spec, words, wordIndex).isEmpty()) {
+        candidates.add(new Candidate(URN_PREFIX + "corpuser:"));
+        candidates.add(new Candidate(URN_PREFIX + "corpGroup:"));
+        return true;
+      }
+      return false;
+    }
     if (!"aspect".equals(subcommandName)) {
       return false;
     }
     List<String> positionals = positionalsBefore(spec, words, wordIndex);
 
     if (positionals.isEmpty()) {
-      // The URN position: offer "urn:li:<entity>:" so the entity type completes in one step.
-      modelNames
-          .entityNames()
-          .forEach(name -> candidates.add(new Candidate(URN_PREFIX + name + ":")));
+      addUrnPrefixes(candidates);
       return true;
     }
     if (positionals.size() == 1) {
@@ -98,6 +104,13 @@ public class CommandCompleter implements Completer {
       return !aspects.isEmpty();
     }
     return false;
+  }
+
+  /** Offers "urn:li:&lt;entity&gt;:" so the entity type completes in one step. */
+  private void addUrnPrefixes(List<Candidate> candidates) {
+    modelNames
+        .entityNames()
+        .forEach(name -> candidates.add(new Candidate(URN_PREFIX + name + ":")));
   }
 
   private List<String> aspectsForUrn(String urn) {
@@ -131,6 +144,10 @@ public class CommandCompleter implements Completer {
       CommandLine.Model.OptionSpec option, List<Candidate> candidates) {
     if (hasName(option, "--aspect")) {
       modelNames.allAspectNames().forEach(name -> candidates.add(new Candidate(name)));
+      return;
+    }
+    if (hasName(option, "--on")) {
+      addUrnPrefixes(candidates);
       return;
     }
     if (hasName(option, "--privilege")) {

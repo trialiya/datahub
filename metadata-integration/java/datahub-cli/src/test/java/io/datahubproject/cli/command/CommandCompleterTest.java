@@ -139,6 +139,14 @@ public class CommandCompleterTest {
   }
 
   @Test
+  public void testCanOffersActorUrnsThenResourceUrns() {
+    assertEquals(complete(List.of("can", ""), 1), List.of("urn:li:corpuser:", "urn:li:corpGroup:"));
+    assertEquals(
+        complete(List.of("can", "urn:li:corpuser:jdoe", "--on", ""), 3),
+        List.of("urn:li:dataset:", "urn:li:dataHubPolicy:"));
+  }
+
+  @Test
   public void testUnknownSubcommandCompletesToNothing() {
     assertTrue(complete(List.of("bogus", ""), 1).isEmpty());
   }

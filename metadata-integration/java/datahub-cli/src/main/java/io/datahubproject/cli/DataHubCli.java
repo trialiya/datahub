@@ -2,9 +2,12 @@ package io.datahubproject.cli;
 
 import io.datahubproject.cli.client.DataHubHttpClient;
 import io.datahubproject.cli.command.AspectCommand;
+import io.datahubproject.cli.command.CanCommand;
 import io.datahubproject.cli.command.PoliciesCommand;
 import io.datahubproject.cli.command.SearchCommand;
+import io.datahubproject.cli.command.ServerInfoCommand;
 import io.datahubproject.cli.command.ShellCommand;
+import io.datahubproject.cli.command.WhoamiCommand;
 import io.datahubproject.cli.config.CliConfig;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -17,7 +20,10 @@ import picocli.CommandLine;
     version = "datahub-cli 0.1.0",
     description = "Local CLI for inspecting a DataHub instance.",
     subcommands = {
+      WhoamiCommand.class,
+      ServerInfoCommand.class,
       PoliciesCommand.class,
+      CanCommand.class,
       AspectCommand.class,
       SearchCommand.class,
       ShellCommand.class

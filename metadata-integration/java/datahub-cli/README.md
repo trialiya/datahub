@@ -158,6 +158,114 @@ such privilege. `--list` says so explicitly rather than printing nothing.
 
 Exit codes: `0` on success, `2` for an unknown aspect name, `1` when the entity has no such aspect.
 
+### `whoami`
+
+Shows who the configured token authenticates as, and which of the instance's platform privileges it
+carries. Also the cheapest way to tell an expired token from an unreachable server.
+
+```bash
+datahub-cli whoami
+datahub-cli whoami --all          # include the privileges that are not granted
+datahub-cli whoami --format json
+```
+
+```
+FIELD        VALUE
+urn          urn:li:corpuser:datahub
+username     datahub
+displayName  Data Hub
+email        datahub@example.com
+nativeUser   true
+gms          http://localhost:8080
+
+PLATFORM PRIVILEGE  GRANTED
+managePolicies      yes
+viewAnalytics       yes
+
+2 of 30 granted · --all to see the rest
+```
+
+The privilege flags are the UI-level ones from `PlatformPrivileges`, not policy privilege types. The
+field list is read from the server's schema rather than compiled in, so a newer instance shows its
+newer flags; if the instance answers no introspection queries, the identity is printed and the flags
+are reported as unavailable.
+
+### `server-info`
+
+Shows what an instance is: its version and deployment facts from the GMS `/config` endpoint, and its
+feature configuration from GraphQL `appConfig`.
+
+```bash
+datahub-cli server-info
+datahub-cli server-info --section appConfig.featureFlags
+datahub-cli server-info --format json > prod.json
+datahub-cli --url https://stage.example.com server-info --diff prod.json
+```
+
+```
+KEY                                         VALUE
+appConfig.appVersion                        v1.3.0
+appConfig.authConfig.tokenAuthEnabled       true
+appConfig.featureFlags.showBrowseV2         true
+server.datahub.serverEnv                    eu
+server.versions.acryldata/datahub.version   v1.3.0
+```
+
+`--diff` compares against a file written earlier by `--format json` and prints only the keys that
+differ, exiting 1 when there are any, so it can gate a deployment check:
+
+```
+KEY                                  https://stage.example.com  prod.json
+appConfig.appVersion                 v1.2.0                     v1.3.0
+appConfig.featureFlags.showBrowseV2  false                      true
+
+2 keys differ
+```
+
+As with `whoami`, the `appConfig` selection is built from the server's schema: its sections gain
+fields with almost every release, and a hand-written query would describe the version this CLI was
+built against instead of the one being asked. Lists of objects — the privilege catalogues — are left
+out, and `/config` is optional, so an instance that serves only one of the two still answers.
+
+### `can`
+
+Shows what an actor may do, optionally on one resource, and why the remaining policies said no.
+This is the view `policies` cannot give: it resolves roles and group membership, so it answers
+"why can this person not edit that dataset" directly.
+
+```bash
+datahub-cli can urn:li:corpuser:jdoe
+datahub-cli can urn:li:corpuser:jdoe --on 'urn:li:dataset:(urn:li:dataPlatform:hive,db.table,PROD)'
+datahub-cli can urn:li:corpuser:jdoe --on 'urn:li:dataset:(...)' --why
+datahub-cli can urn:li:corpuser:jdoe --privilege EDIT_ENTITY_OWNERS   # exits 0 or 3
+```
+
+```
+PRIVILEGE
+EDIT_ENTITY_DOCS
+EDIT_ENTITY_OWNERS
+VIEW_ENTITY_PAGE
+
+3 privileges · urn:li:corpuser:jdoe on urn:li:dataset:(urn:li:dataPlatform:hive,db.table,PROD)
+
+POLICY            REASON FOR DENY
+All Users - View  APPLIES_TO_NONE
+Admins            ACTOR_NOT_MATCHED
+```
+
+Asking about anyone other than yourself requires `MANAGE_POLICIES`. `--why` requires it too, and the
+server omits the reasons silently rather than failing when the caller lacks it, so the command says
+so explicitly.
+
+Options:
+
+| Option         | Description                                                    |
+| -------------- | -------------------------------------------------------------- |
+| `--on`         | Evaluate against one resource URN instead of platform-wide     |
+| `--privilege`  | Check a single privilege; exits `0` when granted, `3` when not |
+| `--why`        | Also show each policy's reason for denying                     |
+| `-f, --format` | `TABLE` (default), `CSV` or `JSON`                             |
+
 ### `policies`
 
 Lists policies and the privileges they grant.
@@ -214,6 +322,15 @@ whole server stack — 361 jars and 221 MB — but the class itself only needs p
 policy models, which `entity-registry` already provides, so the exclusion costs 186 KB and adds no
 external dependency. It loads in about 70 ms, not the registry's two seconds, because only the policy
 schemas are parsed.
+
+The catalogue is collected by reflection over every `Privilege` constant `PoliciesConfig` declares,
+not by walking its grouped lists. Sixteen of the 103 privileges belong to no group, among them the
+operational ones — `RESTORE_INDICES_PRIVILEGE`, `TRUNCATE_TIMESERIES_INDEX_PRIVILEGE`,
+`ES_EXPLAIN_QUERY_PRIVILEGE`, `GET_ES_TASK_STATUS_PRIVILEGE`, `SET_WRITEABLE_PRIVILEGE`,
+`APPLY_RETENTION_PRIVILEGE`. The groups are what the Policy Builder offers and what
+`appConfig.policiesConfig` returns over GraphQL, so neither the UI nor that API would show those
+sixteen; they can only be granted by writing the policy directly. Since they are exactly the ones a
+DevOps user reaches for, completion offers all 103.
 
 This is what makes the shaded jar ~47 MB rather than ~5 MB: the registry brings metadata-models and
 the pegasus runtime, of which icu4j alone is 13 MB.
